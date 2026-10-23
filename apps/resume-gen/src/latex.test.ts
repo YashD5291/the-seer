@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 import { escapeLatex, readPreamble, renderResumeLatex } from './latex';
 import { extractText } from './my-files/extract';
 import type { Bullet, ResumeDoc } from './resume-doc';
@@ -66,6 +67,120 @@ const MARKED: ResumeDoc = {
   education: [{ school: 'school_1', degree: 'degree_1', date: 'date_1' }],
   keywords: [],
 };
+
+// Shaped like the resume the built-in look was taken from: three links, skill rows, roles with a location, two degrees.
+const REFERENCE_SHAPE: ResumeDoc = {
+  ...VALID,
+  experience: [
+    { ...JOB, location: 'Remote (Austin, TX)', bullets: JOB.bullets.slice(0, 2) },
+    {
+      title: 'Data Engineer',
+      company: 'Globex',
+      location: 'Austin, TX',
+      start: 'Jun 2020',
+      end: 'Dec 2022',
+      bullets: [{ text: 'Moved nightly reports to streaming jobs.', priority: 1 }],
+    },
+  ],
+  education: [
+    { school: 'State University', degree: 'M.S. Computer Science', date: 'May 2020' },
+    { school: 'State University', degree: 'B.S. Computer Science', date: 'May 2018' },
+  ],
+};
+
+// REFERENCE_SHAPE rendered after a '%PRE' preamble, with the reference file's indentation and blank lines.
+const REFERENCE_BODY = String.raw`%PRE
+
+    \begin{header}
+        \fontsize{22pt}{22pt}\selectfont
+        \textbf{Alex Rivera}
+
+        \vspace{6pt}
+
+        \normalsize
+        {\hrefWithoutArrow{mailto:alex.rivera@example.com}{alex.rivera@example.com}}
+        {|}
+        {\hrefWithoutArrow{tel:+1-555-010-0199}{+1 (555) 010-0199}}
+        {|}
+        {\hrefWithoutArrow{https://github.com/alex-rivera-example}{github.com/alex-rivera-example}}
+    \end{header}
+
+    \vspace{0.3cm}
+
+    \begin{onecolentry}
+        ML engineer who ships retrieval-augmented generation systems to production.
+    \end{onecolentry}
+
+    \section{Skills}
+
+    \begin{onecolentry}
+        \textbf{Languages:} Python, TypeScript, SQL
+    \end{onecolentry}
+
+    \vspace{0.15cm}
+
+    \begin{onecolentry}
+        \textbf{Frameworks:} LangChain, Hugging Face
+    \end{onecolentry}
+
+    \section{Experience}
+
+    \begin{twocolentry}{
+        Jan 2023 -- Present
+    }
+        \textbf{Machine Learning Engineer} | Northwind Labs, Remote (Austin, TX)
+    \end{twocolentry}
+
+    \vspace{0.10cm}
+    \begin{onecolentry}
+        \begin{highlights}
+            \item\relax Built a RAG pipeline answering 2M queries per month.
+            \item\relax Cut inference latency 40\% by batching PyTorch requests.
+        \end{highlights}
+    \end{onecolentry}
+
+    \experienceSeparator
+
+    \begin{twocolentry}{
+        Jun 2020 -- Dec 2022
+    }
+        \textbf{Data Engineer} | Globex, Austin, TX
+    \end{twocolentry}
+
+    \vspace{0.10cm}
+    \begin{onecolentry}
+        \begin{highlights}
+            \item\relax Moved nightly reports to streaming jobs.
+        \end{highlights}
+    \end{onecolentry}
+
+    \section{Education}
+
+    \begin{twocolentry}{
+        May 2020
+    }
+        \textbf{State University}
+    \end{twocolentry}
+
+    \vspace{0.10cm}
+    \begin{onecolentry}
+        M.S. Computer Science
+    \end{onecolentry}
+
+    \vspace{0.20cm}
+
+    \begin{twocolentry}{
+        May 2018
+    }
+        \textbf{State University}
+    \end{twocolentry}
+
+    \vspace{0.10cm}
+    \begin{onecolentry}
+        B.S. Computer Science
+    \end{onecolentry}
+
+\end{document}`;
 
 const tempDir = mkdtempSync(join(tmpdir(), 'seer-latex-'));
 afterAll(() => rmSync(tempDir, { recursive: true, force: true }));
@@ -159,6 +274,14 @@ describe('readPreamble', () => {
     expect(template).toContain('pdfauthor={}');
   });
 
+  it('loads Charter for both engines: the charter package under pdfTeX, the system Charter through fontspec otherwise', () => {
+    const template = readFileSync(REAL_TEMPLATE, 'utf-8');
+
+    expect(flat(template)).toContain(
+      '\\usepackage{charter} % Professional font (Type1) \\else \\usepackage{fontspec} \\setmainfont{Charter}',
+    );
+  });
+
   it('rejects a template without the separator box line', () => {
     const path = writeTemplate('no-marker.tex', '\\documentclass{article}\n\\begin{document}\n');
 
@@ -178,6 +301,10 @@ describe('renderResumeLatex', () => {
     const doc: ResumeDoc = { ...VALID, projects: [PROJECT, { name: 'Bare', bullets: [] }] };
 
     expect(unbalancedEnvironments(renderResumeLatex(doc, readPreamble(REAL_TEMPLATE)))).toEqual([]);
+  });
+
+  it('lays out the body exactly as the built-in look does', () => {
+    expect(render(REFERENCE_SHAPE)).toBe(REFERENCE_BODY);
   });
 
   describe('sections', () => {
@@ -233,10 +360,10 @@ describe('renderResumeLatex', () => {
       );
     });
 
-    it('appends the location to the company', () => {
+    it('appends the location to the company after a comma', () => {
       const tex = render({ ...VALID, experience: [{ ...JOB, location: 'Remote (Austin, TX)' }] });
 
-      expect(tex).toContain('\\textbf{Machine Learning Engineer} | Northwind Labs -- Remote (Austin, TX)');
+      expect(tex).toContain('\\textbf{Machine Learning Engineer} | Northwind Labs, Remote (Austin, TX)');
     });
 
     it('shows only the start date when a job has no end date', () => {
@@ -318,7 +445,7 @@ describe('renderResumeLatex', () => {
       '{\\hrefWithoutArrow{https://linkedin.com/in/alex-rivera-example}{linkedin.com/in/alex-rivera-example}}';
     const GITHUB = '{\\hrefWithoutArrow{https://github.com/alex-rivera-example}{github.com/alex-rivera-example}}';
 
-    it('puts email and phone on the first line, LinkedIn and GitHub on the second, separated by bars', () => {
+    it('splits all four links into email and phone, then LinkedIn and GitHub, separated by bars', () => {
       const tex = render(ALEX);
 
       expect(contactLines(tex)).toEqual([`${EMAIL} {|} ${PHONE}`, `${LINKEDIN} {|} ${GITHUB}`]);
@@ -327,14 +454,24 @@ describe('renderResumeLatex', () => {
 
     const layouts: [name: string, contact: ResumeDoc['contact'], lines: string[]][] = [
       [
-        'keeps GitHub alone on the second line when there is no LinkedIn (3 links)',
+        'puts three links on one line when there is no LinkedIn',
         { email: ALEX.contact.email, phone: ALEX.contact.phone, github: ALEX.contact.github },
-        [`${EMAIL} {|} ${PHONE}`, GITHUB],
+        [`${EMAIL} {|} ${PHONE} {|} ${GITHUB}`],
       ],
       [
-        'keeps the email alone on the first line when there is no phone (3 links)',
+        'puts three links on one line when there is no GitHub',
+        { email: ALEX.contact.email, phone: ALEX.contact.phone, linkedin: ALEX.contact.linkedin },
+        [`${EMAIL} {|} ${PHONE} {|} ${LINKEDIN}`],
+      ],
+      [
+        'puts three links on one line when there is no phone',
         { email: ALEX.contact.email, phone: '', linkedin: ALEX.contact.linkedin, github: ALEX.contact.github },
-        [EMAIL, `${LINKEDIN} {|} ${GITHUB}`],
+        [`${EMAIL} {|} ${LINKEDIN} {|} ${GITHUB}`],
+      ],
+      [
+        'puts three links on one line when there is no email',
+        { email: '', phone: ALEX.contact.phone, linkedin: ALEX.contact.linkedin, github: ALEX.contact.github },
+        [`${PHONE} {|} ${LINKEDIN} {|} ${GITHUB}`],
       ],
       [
         'has one line when there are only email and phone (2 links)',
@@ -342,12 +479,12 @@ describe('renderResumeLatex', () => {
         [`${EMAIL} {|} ${PHONE}`],
       ],
       [
-        'has two lines and no bar when there are only email and LinkedIn (2 links)',
+        'has one line when there are only email and LinkedIn (2 links)',
         { email: ALEX.contact.email, phone: '', linkedin: ALEX.contact.linkedin },
-        [EMAIL, LINKEDIN],
+        [`${EMAIL} {|} ${LINKEDIN}`],
       ],
       ['has one line and no bar when there is only an email (1 link)', { email: ALEX.contact.email, phone: '' }, [EMAIL]],
-      ['has no second line when there is only a phone (1 link)', { email: '', phone: ALEX.contact.phone }, [PHONE]],
+      ['has one line and no bar when there is only a phone (1 link)', { email: '', phone: ALEX.contact.phone }, [PHONE]],
     ];
 
     for (const [name, contact, lines] of layouts) {
@@ -377,7 +514,7 @@ describe('renderResumeLatex', () => {
         const tex = render({ ...VALID, contact: { ...VALID.contact, ...contact } });
 
         expect(tex).not.toContain(absent);
-        expect(count(tex, '{|}')).toBe(0);
+        expect(count(tex, '{|}')).toBe(1);
       });
     }
 
@@ -466,7 +603,7 @@ describe('renderResumeLatex', () => {
       ['skill category', 'category\\_1'],
       ['skill items', 'item\\_1, item\\_2'],
       ['job title', 'title\\_1'],
-      ['company and location', 'company\\_1 -- location\\_1'],
+      ['company and location', 'company\\_1, location\\_1'],
       ['job dates', 'start\\_1 -- end\\_1'],
       ['job bullet', 'jobbullet\\_1'],
       ['project name', 'project\\_1'],
@@ -513,6 +650,19 @@ function compileWithTectonic(doc: ResumeDoc): string {
   return pdfPath;
 }
 
+// The PDF's font names without their subset tag ("ABCDEF+"). tectonic writes them into compressed object streams.
+function pdfFontNames(pdfPath: string): string[] {
+  const bytes = readFileSync(pdfPath);
+  const text = bytes.toString('latin1');
+  const names = new Set<string>();
+  for (const stream of text.matchAll(/\/Type\/ObjStm[^>]*>>\s*stream\r?\n/g)) {
+    const start = stream.index + stream[0].length;
+    const objects = inflateSync(bytes.subarray(start, text.indexOf('endstream', start))).toString('latin1');
+    for (const [, name] of objects.matchAll(/\/BaseFont\s*\/([^\s/<>[\]()]+)/g)) names.add(name.replace(/^[A-Z]{6}\+/, ''));
+  }
+  return [...names];
+}
+
 describe.skipIf(!Bun.which('tectonic'))('renderResumeLatex compiled with tectonic', () => {
   it('compiles bullets with a leading bracket and every special character', () => {
     const bullets: Bullet[] = [
@@ -530,5 +680,22 @@ describe.skipIf(!Bun.which('tectonic'))('renderResumeLatex compiled with tectoni
     expect(lines).toContain('alex.rivera@example.com | +1 (555) 010-0199');
     expect(lines).toContain('linkedin.com/in/alex-rivera-example | github.com/alex-rivera-example');
     expect(lines.filter((line) => line.startsWith('|') || line.endsWith('|'))).toEqual([]);
+  }, 120_000);
+
+  it('keeps three links on one line', async () => {
+    const text = await extractText(compileWithTectonic(VALID), 'pdf');
+    const lines = text.split(/\r?\n/).map((line) => line.trim());
+
+    expect(lines).toContain('alex.rivera@example.com | +1 (555) 010-0199 | github.com/alex-rivera-example');
+  }, 120_000);
+
+  // tectonic is XeTeX: the charter package alone has no shapes in its Unicode encoding and would fall back to
+  // Latin Modern without bold, so the template loads the system Charter through fontspec.
+  it('sets the text in Charter with a real bold', () => {
+    const fonts = pdfFontNames(compileWithTectonic(SAMPLE_DOC));
+
+    expect(fonts).toContain('Charter-Roman');
+    expect(fonts).toContain('Charter-Bold');
+    expect(fonts.filter((font) => !font.startsWith('Charter-') && !font.startsWith('CMSY'))).toEqual([]);
   }, 120_000);
 });

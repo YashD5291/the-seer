@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { isHelperStatus, isMyFile, isMyFileList } from './helper-types.ts';
 
-const file = { name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23' };
+const file = { name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23', slot: null };
 
 const status = {
   version: '1.0.0',
@@ -23,6 +23,21 @@ describe('isMyFile', () => {
     for (const fileStatus of ['read', 'no-text', 'unsupported', 'too-big']) {
       assert.equal(isMyFile({ ...file, status: fileStatus }), true, fileStatus);
     }
+  });
+
+  it('accepts every slot a file can fill, and no slot', () => {
+    for (const slot of ['career-story', 'resume-1', 'resume-2', 'resume-3', null]) {
+      assert.equal(isMyFile({ ...file, slot }), true, String(slot));
+    }
+  });
+
+  it('rejects a slot that is not one of the four, and a file with no slot field', () => {
+    for (const slot of ['resume-4', 'Career story', '', 1, true, ['resume-1']]) {
+      assert.equal(isMyFile({ ...file, slot }), false, String(slot));
+    }
+    assert.equal(isMyFile({ ...file, slot: undefined }), false);
+    const { slot: _slot, ...withoutSlot } = file;
+    assert.equal(isMyFile(withoutSlot), false);
   });
 
   it('rejects an unknown kind or status', () => {

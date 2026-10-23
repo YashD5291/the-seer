@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ResumeDoc } from './resume-doc';
+import type { ResumeAnalysis, ResumeDoc } from './resume-doc';
 import type { FitResult } from './scorer/request';
 
 export const REAL_TEMPLATE = fileURLToPath(new URL('../GEN/GEN-V3.tex', import.meta.url));
@@ -62,6 +62,31 @@ export const VALID: ResumeDoc = {
   education: [{ school: 'State University', degree: 'B.S. Computer Science', date: 'May 2020' }],
   keywords: ['PyTorch', 'RAG'],
 };
+
+// The writer's reading of the posting, as the schema asks for it before the resume.
+export const VALID_ANALYSIS: ResumeAnalysis = {
+  role_type: 'Backend (ML platform): the posting centers on serving retrieval systems in production.',
+  company_dna: 'Small, fast-moving team that values shipping and measurable results.',
+  must_haves: ['5+ years of ML engineering', 'Production RAG systems'],
+  nice_to_haves: ['Fine-tuning with DPO'],
+  core_problems: ['Answer customer questions from a large document store'],
+  seniority: 'Senior individual contributor',
+  gaps: [
+    {
+      requirement: 'Production RAG systems',
+      evidence: 'Northwind Labs: RAG pipeline, 2M queries a month',
+      action: 'Reframe existing',
+    },
+    { requirement: 'Fine-tuning with DPO', evidence: 'NO MATCH', action: 'Skip' },
+  ],
+  tone: { technical_depth: 8, culture_emphasis: 4, formality: 5, innovation_vs_stability: 3, individual_vs_team: 6 },
+};
+
+export const VALID_CHANGELOG: string[] = [
+  'Tone strategy: technical and metrics-first, matching a posting that lists systems and numbers.',
+  'Summary: now leads with production RAG, the posting\'s core need.',
+  'Gaps not addressed: Fine-tuning with DPO (no matching experience).',
+];
 
 const WAIT_MS = 3_000;
 // Gives up after this many polls (about 5 s), so a test that fails early cannot leave tectonic waiting forever.

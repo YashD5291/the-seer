@@ -32,7 +32,7 @@ import {
   writeResume,
 } from './generate';
 import { isRecord, type JsonObject } from './json-validation';
-import { assertFileWithinLimit } from './my-files/store';
+import { assertFileWithinLimit, isSlot, type Slot, SLOTS } from './my-files/store';
 import { loadProfile } from './profile';
 import { buildScoreRequest, type FitResult, fitResultFromReply, MAX_SCORE } from './scorer/request';
 import {
@@ -84,7 +84,7 @@ const FALLBACK_MODEL = 'sonnet';
 const WRITE_TIMEOUT_MS = 6 * 60_000;
 const SCORE_TIMEOUT_MS = 2 * 60_000;
 const SCORE_TASK = 'Job scoring';
-export const DEFAULT_MAX_PAGES = 1;
+export const DEFAULT_MAX_PAGES = 2;
 // Scoring is cheap: Haiku at low effort, and a resume only at a fit of 40 or more.
 export const DEFAULT_SCORE_MODEL = 'haiku';
 export const DEFAULT_SCORE_EFFORT: Effort = 'low';
@@ -354,7 +354,8 @@ function parseAddFileRequest(input: JsonObject): AddFileRequest {
   const name = requireText(input.name, 'name');
   const bytes = decodeFileData(input.dataBase64, name);
   const lastModifiedMs = parseLastModified(input.lastModified);
-  return { name, bytes, ...(lastModifiedMs !== undefined && { lastModifiedMs }) };
+  const slot = parseSlot(input.slot);
+  return { name, bytes, ...(lastModifiedMs !== undefined && { lastModifiedMs }), ...(slot !== undefined && { slot }) };
 }
 
 // The store's size limit, checked as soon as the file is decoded (addMyFile checks it again).
@@ -370,6 +371,12 @@ function parseLastModified(value: unknown): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   throw new Error('lastModified must be a number of milliseconds since 1970');
+}
+
+function parseSlot(value: unknown): Slot | undefined {
+  if (value === undefined) return undefined;
+  if (isSlot(value)) return value;
+  throw new Error(`slot must be one of ${SLOTS.join(', ')}`);
 }
 
 function parseFolderChoice(value: unknown): FolderChoice {

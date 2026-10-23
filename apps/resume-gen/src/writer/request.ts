@@ -26,6 +26,7 @@ export type Schema = Record<string, unknown>;
 // ---------------------------------------------------------------------------
 
 const PRIORITIES = [1, 2, 3];
+const TONE_SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 export function text(description: string): Schema {
   return { type: 'string', description };
@@ -47,7 +48,9 @@ function bulletSchema(): Schema {
   return object(
     'One achievement.',
     {
-      text: text('Verb first; what was done, how, and the result. At most 30 words on a one-page budget.'),
+      text: text(
+        'Verb first; what was done, how, and the result. One or two lines: at most 35 words on two pages, 30 on one.',
+      ),
       priority: {
         type: 'integer',
         enum: [...PRIORITIES],
@@ -67,7 +70,11 @@ function jobSchema(): Schema {
       location: text('Location as in the documents; omit if they give none.'),
       start: text('Start date as the documents give it, e.g. "Jan 2023" or "2019".'),
       end: text('End date as the documents give it, e.g. "May 2024" or "2021", or "Present".'),
-      bullets: list('Bullets in display order, most relevant first.', bulletSchema(), 1),
+      bullets: list(
+        'Bullets in display order, most relevant first: four by default, never more than five.',
+        bulletSchema(),
+        1,
+      ),
     },
     ['title', 'company', 'start', 'end', 'bullets'],
   );
@@ -97,10 +104,65 @@ function educationSchema(): Schema {
   );
 }
 
+function toneScore(description: string): Schema {
+  return { type: 'integer', enum: [...TONE_SCORES], description };
+}
+
+function gapSchema(): Schema {
+  return object(
+    'One requirement checked against the documents.',
+    {
+      requirement: text("The requirement in the posting's words."),
+      evidence: text('Where the documents show it (document and role), or "NO MATCH".'),
+      action: text(
+        'One of "Reframe existing", "Add from documents", "Highlight related" or "Skip", then a few words on how.',
+      ),
+    },
+    ['requirement', 'evidence', 'action'],
+  );
+}
+
+function toneSchema(): Schema {
+  return object(
+    'Tone calibration read from the posting, each from 1 to 10.',
+    {
+      technical_depth: toneScore('1 = business outcomes only, 10 = deep technical detail.'),
+      culture_emphasis: toneScore('1 = the posting barely mentions culture or values, 10 = they run through it.'),
+      formality: toneScore('1 = casual, 10 = formal.'),
+      innovation_vs_stability: toneScore('1 = building new things, 10 = keeping proven systems reliable.'),
+      individual_vs_team: toneScore('1 = individual excellence and ownership, 10 = team collaboration.'),
+    },
+    ['technical_depth', 'culture_emphasis', 'formality', 'innovation_vs_stability', 'individual_vs_team'],
+  );
+}
+
+// First in the schema, so the model reads the posting before it writes the resume.
+function analysisSchema(): Schema {
+  return object(
+    'Your reading of the posting, written before the resume; saved as notes, never printed on the resume.',
+    {
+      role_type: text('Kind of role and its field, one line on why, and the primary stack or body of knowledge.'),
+      company_dna: text(
+        'Two or three sentences: culture and values, formal or casual, technical or business, individual or team,' +
+          ' metrics or narrative.',
+      ),
+      must_haves: stringList('Skills and experience the posting requires.'),
+      nice_to_haves: stringList('Preferred or bonus skills and experience.'),
+      core_problems: stringList('The problems this role is hired to solve, a few words each.'),
+      seniority: text('The level the posting implies, and why in a few words.'),
+      gaps: list('One row per must-have, and per nice-to-have that matters.', gapSchema()),
+      tone: toneSchema(),
+    },
+    ['role_type', 'company_dna', 'must_haves', 'nice_to_haves', 'core_problems', 'seniority', 'gaps', 'tone'],
+  );
+}
+
+// `analysis` comes first and `changelog` last, so the model analyses, then writes, then explains.
 export function resumeJsonSchema(documentNames: string[]): Schema {
   return object(
     'A tailored resume.',
     {
+      analysis: analysisSchema(),
       version: { type: 'integer', enum: [1], description: 'Always 1.' },
       target: object(
         'The posting this resume targets; used only to name the output.',
@@ -124,7 +186,7 @@ export function resumeJsonSchema(documentNames: string[]): Schema {
         },
         ['email', 'phone'],
       ),
-      summary: text('Two or three sentences written for this posting; at most 45 words on a one-page budget.'),
+      summary: text('Two or three sentences written for this posting; 40 to 70 words on two pages, 35 to 45 on one.'),
       skills: list(
         'Skill rows, most relevant to the posting first.',
         object(
@@ -148,8 +210,26 @@ export function resumeJsonSchema(documentNames: string[]): Schema {
       ),
       education: list('Degrees, copied from the starting resume or the documents.', educationSchema()),
       keywords: stringList('Posting terms that appear verbatim in the resume text.'),
+      changelog: stringList(
+        'Written after the resume: tone strategy, each change and why, removed, added from documents, optional' +
+          ' additions, modifications, gaps not addressed.',
+        1,
+      ),
     },
-    ['version', 'target', 'base', 'name', 'contact', 'summary', 'skills', 'experience', 'education', 'keywords'],
+    [
+      'analysis',
+      'version',
+      'target',
+      'base',
+      'name',
+      'contact',
+      'summary',
+      'skills',
+      'experience',
+      'education',
+      'keywords',
+      'changelog',
+    ],
   );
 }
 
@@ -175,9 +255,12 @@ export function tagged(name: string, body: string, attributes: Record<string, st
   return `<${name}${attrs}>\n${body.trim()}\n</${name}>`;
 }
 
-// The modified date lets the model settle documents that disagree: the newest wins.
+// The kind says which documents are base resumes and which is the career story; the modified date lets the model
+// settle documents that disagree: the newest wins.
 export function documentBlocks(documents: SourceDocument[]): string[] {
-  return documents.map((source) => tagged('document', source.text, { name: source.name, modified: source.modified }));
+  return documents.map((source) =>
+    tagged('document', source.text, { name: source.name, kind: source.kind, modified: source.modified }),
+  );
 }
 
 // The person's own extra instructions, after everything else, or nothing when they left the box empty.

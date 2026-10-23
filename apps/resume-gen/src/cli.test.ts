@@ -293,4 +293,13 @@ describe('theseer-pdf --setup', () => {
     expect(stdout).not.toContain('--output-dir');
     expect(stdout).not.toContain('extension-id');
   });
+
+  it('gives two pages as the default page budget', async () => {
+    const cli = cliHome();
+
+    const { stdout } = await runCli(['--help'], cli);
+
+    expect(stdout).toContain('--max-pages <n>     Page budget (default: 2)');
+    expect(stdout).not.toContain('(default: 1)');
+  });
 });

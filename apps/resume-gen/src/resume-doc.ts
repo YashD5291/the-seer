@@ -14,7 +14,37 @@ export type Bullet = {
   priority: 1 | 2 | 3; // 1 = must keep, 3 = cut first
 };
 
+// The writer's 1-10 reading of the posting; on a two-sided scale 1 is the first side and 10 the second.
+export interface ToneScores {
+  technical_depth: number;
+  culture_emphasis: number;
+  formality: number;
+  innovation_vs_stability: number; // 1 = innovation, 10 = stability
+  individual_vs_team: number; // 1 = individual, 10 = team
+}
+
+export const TONE_SCALES: readonly (keyof ToneScores)[] = [
+  'technical_depth',
+  'culture_emphasis',
+  'formality',
+  'innovation_vs_stability',
+  'individual_vs_team',
+];
+
+// The writer's analysis of the posting, written before the resume and saved as notes.md.
+export interface ResumeAnalysis {
+  role_type: string;
+  company_dna: string;
+  must_haves: string[];
+  nice_to_haves: string[];
+  core_problems: string[];
+  seniority: string;
+  gaps: { requirement: string; evidence: string; action: string }[]; // evidence is "NO MATCH" when none
+  tone: ToneScores;
+}
+
 export interface ResumeDoc {
+  analysis?: ResumeAnalysis; // optional here: replies from before the analysis still parse
   version: 1;
   target: { company: string; role: string };
   base: string; // name of the document in My files the resume started from
@@ -33,6 +63,7 @@ export interface ResumeDoc {
   projects?: { name: string; link?: string; bullets: Bullet[] }[];
   education: { school: string; degree: string; date: string }[];
   keywords: string[]; // JD terms Claude worked in truthfully
+  changelog?: string[]; // what the writer changed and why, saved with the analysis
 }
 
 // missing: no resume JSON in the reply. cut-off: the reply ended inside a json fence.
@@ -146,7 +177,7 @@ function withoutNullOptionals(value: unknown): unknown {
   const doc = structuredClone(value);
   if (!isRecord(doc)) return doc;
 
-  omitNullOptionals(doc, ['projects']);
+  omitNullOptionals(doc, ['projects', 'analysis', 'changelog']);
   if (isRecord(doc.contact)) omitNullOptionals(doc.contact, ['linkedin', 'github', 'location']);
   for (const job of recordsIn(doc.experience)) omitNullOptionals(job, ['location']);
   for (const project of recordsIn(doc.projects)) omitNullOptionals(project, ['link']);
@@ -173,6 +204,8 @@ function findProblems(value: unknown): string[] {
   checkProjects(value.projects, problems);
   checkEducation(value.education, problems);
   requireStringArray(value.keywords, 'keywords', problems);
+  checkAnalysis(value.analysis, problems);
+  if (value.changelog !== undefined) requireStringArray(value.changelog, 'changelog', problems);
   return problems;
 }
 
@@ -226,6 +259,40 @@ function checkEducation(raw: unknown, problems: string[]): void {
     requireString(entry.degree, `${path}.degree`, problems);
     requireString(entry.date, `${path}.date`, problems);
   });
+}
+
+function checkAnalysis(raw: unknown, problems: string[]): void {
+  if (raw === undefined) return;
+  if (!isRecord(raw)) {
+    problems.push('analysis must be an object');
+    return;
+  }
+  requireString(raw.role_type, 'analysis.role_type', problems);
+  requireString(raw.company_dna, 'analysis.company_dna', problems);
+  requireStringArray(raw.must_haves, 'analysis.must_haves', problems);
+  requireStringArray(raw.nice_to_haves, 'analysis.nice_to_haves', problems);
+  requireStringArray(raw.core_problems, 'analysis.core_problems', problems);
+  requireString(raw.seniority, 'analysis.seniority', problems);
+  eachEntry(requireArray(raw.gaps, 'analysis.gaps', problems), 'analysis.gaps', (gap, path) => {
+    requireString(gap.requirement, `${path}.requirement`, problems);
+    requireString(gap.evidence, `${path}.evidence`, problems);
+    requireString(gap.action, `${path}.action`, problems);
+  });
+  checkTone(raw.tone, problems);
+}
+
+function checkTone(raw: unknown, problems: string[]): void {
+  if (!isRecord(raw)) {
+    problems.push('analysis.tone must be an object');
+    return;
+  }
+  for (const scale of TONE_SCALES) {
+    if (!isToneScore(raw[scale])) problems.push(`analysis.tone.${scale} must be a whole number from 1 to 10`);
+  }
+}
+
+function isToneScore(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 10;
 }
 
 function checkBullets(bullets: unknown[], path: string, problems: string[]): void {

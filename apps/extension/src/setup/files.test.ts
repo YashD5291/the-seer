@@ -8,13 +8,17 @@ import {
   profileProblemText,
   isTooBig,
   MAX_FILE_BYTES,
+  otherFiles,
+  slotRows,
+  TOO_BIG_TEXT,
   toBase64,
   tooBigFile,
+  withFile,
 } from './files.ts';
-import type { MyFile, MyFileStatus } from '../shared/helper-types.ts';
+import type { MyFile, MyFileStatus, Slot } from '../shared/helper-types.ts';
 
-function file(status: MyFileStatus, words = 0, name = 'resume.pdf'): MyFile {
-  return { name, kind: 'pdf', words, status, modified: '2026-10-23' };
+function file(status: MyFileStatus, words = 0, name = 'resume.pdf', slot: Slot | null = null): MyFile {
+  return { name, kind: 'pdf', words, status, modified: '2026-10-23', slot };
 }
 
 describe('ACCEPTED_TYPES', () => {
@@ -46,6 +50,10 @@ describe('fileStatusText', () => {
 
   it('too-big → names the limit', () => {
     assert.equal(fileStatusText(file('too-big')), 'Too big — the limit is 10 MB');
+  });
+
+  it('too-big is the same line a slot upload reports for a file that is never sent', () => {
+    assert.equal(TOO_BIG_TEXT, fileStatusText(file('too-big')));
   });
 });
 
@@ -108,7 +116,88 @@ describe('tooBigFile', () => {
       words: 0,
       status: 'too-big',
       modified: '2026-10-23',
+      slot: null,
     });
+  });
+});
+
+describe('slotRows', () => {
+  it('lists the career story, then the three base resumes, in that order', () => {
+    const rows = slotRows([]);
+    assert.deepEqual(
+      rows.map((row) => [row.slot, row.label]),
+      [
+        ['career-story', 'Career story'],
+        ['resume-1', 'Base resume 1'],
+        ['resume-2', 'Base resume 2'],
+        ['resume-3', 'Base resume 3'],
+      ],
+    );
+  });
+
+  it('describes the career story, and each resume, in one line', () => {
+    const rows = slotRows([]);
+    assert.equal(rows[0].hint, 'Your work history in your own words — the fullest record of what you did.');
+    for (const row of rows.slice(1)) assert.equal(row.hint, 'A resume you already use.');
+  });
+
+  it('leaves every row empty while no file fills a slot', () => {
+    assert.deepEqual(
+      slotRows([file('read', 300, 'notes.md')]).map((row) => row.file),
+      [null, null, null, null],
+    );
+  });
+
+  it('puts each file in the row of its slot, whatever order the files come in', () => {
+    const story = file('read', 900, 'story.md', 'career-story');
+    const second = file('no-text', 0, 'scan.pdf', 'resume-2');
+    const rows = slotRows([second, file('read', 50, 'notes.md'), story]);
+    assert.deepEqual(
+      rows.map((row) => row.file),
+      [story, null, second, null],
+    );
+  });
+});
+
+describe('otherFiles', () => {
+  it('keeps only the files that fill no slot, in the order given', () => {
+    const notes = file('read', 50, 'notes.md');
+    const linkedin = file('read', 700, 'profile.pdf');
+    const files = [notes, file('read', 900, 'story.md', 'career-story'), linkedin, file('read', 400, 'cv.pdf', 'resume-1')];
+    assert.deepEqual(otherFiles(files), [notes, linkedin]);
+  });
+
+  it('is empty when every file fills a slot, and when there are no files', () => {
+    assert.deepEqual(otherFiles([file('read', 400, 'cv.pdf', 'resume-1')]), []);
+    assert.deepEqual(otherFiles([]), []);
+  });
+});
+
+describe('withFile', () => {
+  it('adds a file and keeps the list sorted by name', () => {
+    const files = [file('read', 5, 'b.md'), file('read', 5, 'd.md')];
+    assert.deepEqual(
+      withFile(files, file('read', 5, 'c.md')).map((f) => f.name),
+      ['b.md', 'c.md', 'd.md'],
+    );
+  });
+
+  it('replaces the file that held the slot, as the helper does', () => {
+    const old = file('read', 400, 'old-cv.pdf', 'resume-1');
+    const other = file('read', 400, 'cv-2.pdf', 'resume-2');
+    const added = file('read', 420, 'new-cv.pdf', 'resume-1');
+    assert.deepEqual(withFile([old, other], added), [other, added]);
+  });
+
+  it('does not replace anything for a file without a slot', () => {
+    const files = [file('read', 5, 'a.md'), file('read', 5, 'b.md')];
+    assert.equal(withFile(files, file('read', 5, 'c.md')).length, 3);
+  });
+
+  it('leaves the list it was given as it was', () => {
+    const files = [file('read', 400, 'old-cv.pdf', 'resume-1')];
+    withFile(files, file('read', 420, 'new-cv.pdf', 'resume-1'));
+    assert.deepEqual(files, [file('read', 400, 'old-cv.pdf', 'resume-1')]);
   });
 });
 

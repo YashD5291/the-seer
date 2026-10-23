@@ -14,7 +14,7 @@ const STATUS: HelperStatus = {
   template: { path: '/Users/alex/.theseer/templates/default.tex' },
   profileDir: '/Users/alex/TheSeer/My files',
   outputDir: '/Users/alex/TheSeer/Resumes',
-  files: [{ name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23' }],
+  files: [{ name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23', slot: null }],
   profileProblem: null,
 };
 

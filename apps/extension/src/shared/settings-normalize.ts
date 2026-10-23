@@ -11,7 +11,7 @@ export const CLAUDE_MODELS = [
 export const WRITER_EFFORT: ClaudeEffort = 'medium';
 
 export const DEFAULT_CLAUDE_MODEL = 'opus';
-export const DEFAULT_MAX_PAGES = 1;
+export const DEFAULT_MAX_PAGES = 2;
 
 /** The most characters of extra instructions the helper takes; the setup page's box has the same limit. */
 export const MAX_WRITER_NOTES = 2000;
@@ -22,9 +22,9 @@ export function normalizeClaudeModel(stored: unknown): string {
   return known ? known.id : DEFAULT_CLAUDE_MODEL;
 }
 
-/** Only the numbers 1 and 2 are valid; a numeric string such as '2' is not. */
+/** Only the numbers 1 and 2 are valid; a numeric string such as '1' is not. */
 export function normalizeMaxPages(stored: unknown): 1 | 2 {
-  return stored === 2 ? 2 : DEFAULT_MAX_PAGES;
+  return stored === 1 || stored === 2 ? stored : DEFAULT_MAX_PAGES;
 }
 
 /** Only whole numbers from 0 to 100 are valid; a numeric string such as '50' is not. */

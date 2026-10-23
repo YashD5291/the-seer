@@ -1,7 +1,7 @@
 import { errorMessage } from './error-message.js';
 import { isRecord } from './guards.js';
 import type { UnknownRecord } from './guards.js';
-import type { HelperStatus, MyFile } from './helper-types.js';
+import type { HelperStatus, MyFile, Slot } from './helper-types.js';
 import { isHelperStatus, isMyFile, isMyFileList } from './helper-types.js';
 
 /** The native messaging host name the installer registers with Chrome. */
@@ -20,8 +20,11 @@ export type SendNative = (host: string, message: object) => Promise<unknown>;
 
 export interface HelperClient {
   status(): Promise<HelperStatus>;
-  /** `lastModified` (ms since 1970, a File's own date) lets the helper keep the date the user last changed the file. */
-  addFile(name: string, dataBase64: string, lastModified?: number): Promise<MyFile>;
+  /**
+   * `lastModified` (ms since 1970, a File's own date) lets the helper keep the date the user last changed the file.
+   * `slot` puts it in that place on the setup page; the helper replaces whatever file held it.
+   */
+  addFile(name: string, dataBase64: string, lastModified?: number, slot?: Slot): Promise<MyFile>;
   removeFile(name: string): Promise<MyFile[]>;
   /** The folder the user picked, or `null` when they cancelled. */
   chooseFolder(): Promise<string | null>;
@@ -102,11 +105,12 @@ export function createHelperClient(send: SendNative): HelperClient {
       return status;
     },
 
-    async addFile(name, dataBase64, lastModified) {
+    async addFile(name, dataBase64, lastModified, slot) {
       const { file } = await request(send, 'add-file', {
         name,
         dataBase64,
         ...(lastModified !== undefined && { lastModified }),
+        ...(slot !== undefined && { slot }),
       });
       if (!isMyFile(file)) throw unexpectedReply('add-file');
       return file;

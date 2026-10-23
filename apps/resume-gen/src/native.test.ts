@@ -447,7 +447,7 @@ describe('runNativeHost: recompile', () => {
 });
 
 describe('runNativeHost: generate', () => {
-  it('treats a message without a command as generate, with chatTitle as the fallback title', async () => {
+  it('treats a message without a command as generate, with chatTitle as the fallback title and two pages', async () => {
     let received: unknown = null;
     const frames = await runOnce(
       { responseText: '```json\n{}\n```', chatTitle: 'Acme - Engineer' },
@@ -458,14 +458,14 @@ describe('runNativeHost: generate', () => {
         },
       }),
     );
-    expect(received).toEqual({ responseText: '```json\n{}\n```', fallbackTitle: 'Acme - Engineer', maxPages: 1 });
+    expect(received).toEqual({ responseText: '```json\n{}\n```', fallbackTitle: 'Acme - Engineer', maxPages: 2 });
     expect(frames).toEqual([RESULT]);
   });
 
   it('passes maxPages and a null fallback title', async () => {
     let received: unknown = null;
     await runOnce(
-      { command: 'generate', responseText: 'reply', maxPages: 2 },
+      { command: 'generate', responseText: 'reply', maxPages: 3 },
       handlers({
         generate: async (req) => {
           received = req;
@@ -473,7 +473,7 @@ describe('runNativeHost: generate', () => {
         },
       }),
     );
-    expect(received).toEqual({ responseText: 'reply', fallbackTitle: null, maxPages: 2 });
+    expect(received).toEqual({ responseText: 'reply', fallbackTitle: null, maxPages: 3 });
   });
 
   it('rejects a request without responseText', async () => {
@@ -511,7 +511,14 @@ describe('runNativeHost: a message that is too large', () => {
 // Setup commands: one-shot, each answered with { success: true, ... }
 // ---------------------------------------------------------------------------
 
-const MY_FILE: MyFile = { name: 'resume.pdf', kind: 'pdf', words: 410, status: 'read', modified: '2026-10-01' };
+const MY_FILE: MyFile = {
+  name: 'resume.pdf',
+  kind: 'pdf',
+  words: 410,
+  status: 'read',
+  modified: '2026-10-01',
+  slot: null,
+};
 
 const STATUS: HelperStatus = {
   version: '1.0.0',
@@ -576,6 +583,34 @@ describe('runNativeHost: add-file', () => {
     expect(received).toEqual([lastModified]);
   });
 
+  it.each(['career-story', 'resume-1', 'resume-2', 'resume-3'])('passes the slot %s on to the handler', async (slot) => {
+    const received: Array<string | undefined> = [];
+    await runOnce(
+      { ...ADD_FILE_INPUT, slot },
+      handlers({
+        addFile: async (req) => {
+          received.push(req.slot);
+          return MY_FILE;
+        },
+      }),
+    );
+    expect(received).toEqual([slot]);
+  });
+
+  it('hands over no slot when the message carries none', async () => {
+    const received: Array<{ hasSlot: boolean }> = [];
+    await runOnce(
+      ADD_FILE_INPUT,
+      handlers({
+        addFile: async (req) => {
+          received.push({ hasSlot: 'slot' in req });
+          return MY_FILE;
+        },
+      }),
+    );
+    expect(received).toEqual([{ hasSlot: false }]);
+  });
+
   it('accepts a file of exactly 10 MB', async () => {
     const dataBase64 = Buffer.alloc(MAX_FILE_BYTES).toString('base64');
     const sizes: number[] = [];
@@ -601,6 +636,10 @@ describe('runNativeHost: add-file', () => {
     ['a lastModified that is text', { ...ADD_FILE_INPUT, lastModified: '1709640000000' }, 'lastModified must be a number'],
     ['a lastModified that is null', { ...ADD_FILE_INPUT, lastModified: null }, 'lastModified must be a number'],
     ['a lastModified that is an object', { ...ADD_FILE_INPUT, lastModified: {} }, 'lastModified must be a number'],
+    ['an unknown slot', { ...ADD_FILE_INPUT, slot: 'resume-4' }, 'slot must be one of career-story, resume-1, resume-2, resume-3'],
+    ['a slot that is not text', { ...ADD_FILE_INPUT, slot: 2 }, 'slot must be one of'],
+    ['a slot that is null', { ...ADD_FILE_INPUT, slot: null }, 'slot must be one of'],
+    ['an empty slot', { ...ADD_FILE_INPUT, slot: '' }, 'slot must be one of'],
   ];
 
   for (const [label, input, reason] of BAD_REQUESTS) {
@@ -972,7 +1011,7 @@ describe('hostHandlers wiring: the setup commands', () => {
     const added = await runOnce({ ...ADD_FILE_INPUT, name: 'cv.md', lastModified }, host);
     const status = await runOnce({ command: 'status' }, host);
 
-    const file = { name: 'cv.md', kind: 'text', words: 1, status: 'read', modified: '2024-03-05' };
+    const file = { name: 'cv.md', kind: 'text', words: 1, status: 'read', modified: '2024-03-05', slot: null };
     expect(added).toEqual([{ success: true, file }]);
     expect(status).toEqual([
       {
@@ -981,6 +1020,23 @@ describe('hostHandlers wiring: the setup commands', () => {
       },
     ]);
     expect(readFileSync(join(ctx.config.profileDir ?? '', 'cv.md'), 'utf-8')).toBe('%PDF-1.4');
+  });
+
+  it('puts an added file in its slot, replaces it on the next upload to that slot, and lists the slot in the status', async () => {
+    const { ctx, setup } = setupWiring();
+    const host = hostHandlers(() => ctx, setup);
+    await runOnce({ ...ADD_FILE_INPUT, name: 'old.md', slot: 'resume-2' }, host);
+
+    const added = await runOnce({ ...ADD_FILE_INPUT, name: 'new.md', slot: 'resume-2' }, host);
+    const status = await runOnce({ command: 'status' }, host);
+
+    expect(added).toEqual([{ success: true, file: expect.objectContaining({ name: 'new.md', slot: 'resume-2' }) }]);
+    expect(status).toEqual([
+      {
+        success: true,
+        status: expect.objectContaining({ files: [expect.objectContaining({ name: 'new.md', slot: 'resume-2' })] }),
+      },
+    ]);
   });
 
   it('removes a file and frames the files that are left', async () => {

@@ -7,6 +7,9 @@ export type MyFileKind = 'pdf' | 'word' | 'text' | 'other';
 /** `read`: its text reaches Claude. The others never do: no text in it, a type the helper cannot read, or over the size limit. */
 export type MyFileStatus = 'read' | 'no-text' | 'unsupported' | 'too-big';
 
+/** The places a file can fill on the setup page: the career story, or one of three base resumes. */
+export type Slot = 'career-story' | 'resume-1' | 'resume-2' | 'resume-3';
+
 /** One file in the user's "My files" folder. */
 export interface MyFile {
   name: string;
@@ -16,6 +19,8 @@ export interface MyFile {
   status: MyFileStatus;
   /** Last change, `YYYY-MM-DD`. */
   modified: string;
+  /** The place it fills; `null` for any other file. */
+  slot: Slot | null;
 }
 
 /** Why Claude Code cannot be used; `null` when it can. `unreadable`: it is there, but did not say (see `detail`). */
@@ -46,6 +51,7 @@ export interface HelperStatus {
 
 const FILE_KINDS: readonly MyFileKind[] = ['pdf', 'word', 'text', 'other'];
 const FILE_STATUSES: readonly MyFileStatus[] = ['read', 'no-text', 'unsupported', 'too-big'];
+const SLOTS: readonly Slot[] = ['career-story', 'resume-1', 'resume-2', 'resume-3'];
 const CLAUDE_PROBLEMS: readonly string[] = ['not-installed', 'not-logged-in', 'not-subscription', 'unreadable'];
 
 function isStringOrNull(value: unknown): boolean {
@@ -60,7 +66,8 @@ export function isMyFile(value: unknown): value is MyFile {
     typeof value.words === 'number' &&
     Number.isFinite(value.words) &&
     isOneOf(value.status, FILE_STATUSES) &&
-    typeof value.modified === 'string'
+    typeof value.modified === 'string' &&
+    (value.slot === null || isOneOf(value.slot, SLOTS))
   );
 }
 

@@ -6,7 +6,7 @@ import {
   validateResumeDoc,
   type ResumeDoc,
 } from './resume-doc';
-import { VALID } from './test-fixtures';
+import { VALID, VALID_ANALYSIS, VALID_CHANGELOG } from './test-fixtures';
 
 const FENCE = '```';
 const [JOB] = VALID.experience;
@@ -44,6 +44,14 @@ function withJob(changes: Record<string, unknown>): unknown {
 
 function withProject(changes: Record<string, unknown>): unknown {
   return { ...VALID, projects: [{ name: 'Seer', bullets: [], ...changes }] };
+}
+
+function withAnalysis(changes: Record<string, unknown>): unknown {
+  return { ...VALID, analysis: { ...VALID_ANALYSIS, ...changes } };
+}
+
+function withTone(changes: Record<string, unknown>): unknown {
+  return withAnalysis({ tone: { ...VALID_ANALYSIS.tone, ...changes } });
 }
 
 describe('extractResumeDoc', () => {
@@ -190,6 +198,31 @@ describe('validateResumeDoc', () => {
 
   it('accepts every optional field', () => {
     expect(validateResumeDoc(FULL)).toEqual(FULL);
+  });
+
+  it('keeps the analysis and the changelog when the reply has them', () => {
+    const doc = { ...VALID, analysis: VALID_ANALYSIS, changelog: VALID_CHANGELOG };
+
+    expect(validateResumeDoc(doc)).toStrictEqual(doc);
+  });
+
+  it('accepts a reply without the analysis and the changelog, as older replies are', () => {
+    const result = validateResumeDoc(VALID);
+
+    expect('analysis' in result).toBe(false);
+    expect('changelog' in result).toBe(false);
+  });
+
+  it('treats a null analysis or changelog as absent', () => {
+    expect(validateResumeDoc({ ...VALID, analysis: null, changelog: null })).toStrictEqual(VALID);
+  });
+
+  it('accepts every tone score from 1 to 10', () => {
+    for (const score of [1, 5, 10]) {
+      const tone = { ...VALID_ANALYSIS.tone, formality: score };
+
+      expect(validateResumeDoc({ ...VALID, analysis: { ...VALID_ANALYSIS, tone } }).analysis?.tone.formality).toBe(score);
+    }
   });
 
   it('omits a null contact.linkedin from the returned doc', () => {
@@ -365,6 +398,56 @@ describe('validateResumeDoc', () => {
       { ...VALID, keywords: ['PyTorch', 3] },
       'keywords must be an array of strings',
     ],
+    ['an analysis that is not an object', { ...VALID, analysis: 'Backend role' }, 'analysis must be an object'],
+    ['an analysis without a role type', withAnalysis({ role_type: undefined }), 'analysis.role_type must be a string'],
+    ['a non-string company DNA', withAnalysis({ company_dna: 3 }), 'analysis.company_dna must be a string'],
+    ['a non-string seniority', withAnalysis({ seniority: null }), 'analysis.seniority must be a string'],
+    [
+      'must-haves that are not an array',
+      withAnalysis({ must_haves: 'Python' }),
+      'analysis.must_haves must be an array of strings',
+    ],
+    [
+      'a non-string nice-to-have',
+      withAnalysis({ nice_to_haves: ['DPO', 4] }),
+      'analysis.nice_to_haves must be an array of strings',
+    ],
+    [
+      'core problems that are not an array',
+      withAnalysis({ core_problems: undefined }),
+      'analysis.core_problems must be an array of strings',
+    ],
+    ['gaps that are not an array', withAnalysis({ gaps: 'none' }), 'analysis.gaps must be an array'],
+    [
+      'a gap without evidence',
+      withAnalysis({ gaps: [{ requirement: 'DPO', action: 'Skip' }] }),
+      'analysis.gaps[0].evidence must be a string',
+    ],
+    [
+      'a gap whose action is not a string',
+      withAnalysis({ gaps: [{ requirement: 'DPO', evidence: 'NO MATCH', action: 4 }] }),
+      'analysis.gaps[0].action must be a string',
+    ],
+    ['a missing tone', withAnalysis({ tone: undefined }), 'analysis.tone must be an object'],
+    ['a tone score of 0', withTone({ technical_depth: 0 }), 'analysis.tone.technical_depth must be a whole number from 1 to 10'],
+    ['a tone score of 11', withTone({ formality: 11 }), 'analysis.tone.formality must be a whole number from 1 to 10'],
+    [
+      'a fractional tone score',
+      withTone({ culture_emphasis: 5.5 }),
+      'analysis.tone.culture_emphasis must be a whole number from 1 to 10',
+    ],
+    [
+      'a tone score given as text',
+      withTone({ individual_vs_team: '6' }),
+      'analysis.tone.individual_vs_team must be a whole number from 1 to 10',
+    ],
+    [
+      'a missing tone score',
+      withTone({ innovation_vs_stability: undefined }),
+      'analysis.tone.innovation_vs_stability must be a whole number from 1 to 10',
+    ],
+    ['a changelog that is not an array', { ...VALID, changelog: 'Rewrote the summary.' }, 'changelog must be an array of strings'],
+    ['a non-string changelog entry', { ...VALID, changelog: ['Rewrote the summary.', 2] }, 'changelog must be an array of strings'],
   ];
 
   for (const [name, doc, problem] of invalidDocs) {

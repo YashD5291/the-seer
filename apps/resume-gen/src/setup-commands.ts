@@ -14,7 +14,7 @@ import {
   updateConfig,
 } from './config';
 import { execFileAsync, isExecFailure, oneLine } from './exec';
-import { addMyFile, inspectMyFiles, type MyFile, removeMyFile } from './my-files/store';
+import { addMyFile, inspectMyFiles, type MyFile, removeMyFile, type Slot } from './my-files/store';
 import { failureReason, hasErrnoCode, ProfileError, SetupError } from './setup-error';
 import { HELPER_VERSION } from './version';
 
@@ -67,11 +67,13 @@ export interface SetupDeps {
 
 export type FolderChoice = 'files' | 'resumes';
 
-// lastModifiedMs is the file's own date (File.lastModified, milliseconds since 1970).
+// lastModifiedMs is the file's own date (File.lastModified, milliseconds since 1970). `slot` is the place on the
+// setup page the file is for; the file that held it is replaced.
 export interface AddFileRequest {
   name: string;
   bytes: Uint8Array;
   lastModifiedMs?: number;
+  slot?: Slot;
 }
 
 export interface SetupHandlers {
@@ -155,7 +157,7 @@ async function myFilesStatus(ctx: HostContext): Promise<Pick<HelperStatus, 'file
 
 export async function addFile(deps: SetupDeps, req: AddFileRequest): Promise<MyFile> {
   const profileDir = requireProfileDir(deps.context().config);
-  return addMyFile(profileDir, req.name, req.bytes, req.lastModifiedMs);
+  return addMyFile(profileDir, req.name, req.bytes, req.lastModifiedMs, req.slot);
 }
 
 export async function removeFile(deps: SetupDeps, name: string): Promise<MyFile[]> {

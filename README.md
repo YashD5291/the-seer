@@ -2,7 +2,7 @@
 
 Open a job posting, click one button, get a resume tailored to it.
 
-The Seer is a free, open-source Chrome extension. You give it the files you already have (resumes, a LinkedIn profile PDF, career notes). On a job posting it scores how well you fit, and if the fit is good enough it writes a resume for that job (one page by default) as a PDF, using only what your files say. It runs on your own Claude subscription through Claude Code, on your Mac. Nothing is sold, there are no accounts or servers, and it never uses API keys.
+The Seer is a free, open-source Chrome extension. You give it the files you already have (resumes, a LinkedIn profile PDF, career notes). On a job posting it scores how well you fit, and if the fit is good enough it writes a resume for that job (two pages by default) as a PDF, using only what your files say. It runs on your own Claude subscription through Claude Code, on your Mac. Nothing is sold, there are no accounts or servers, and it never uses API keys.
 
 1. **Click** The Seer's **S** button (bottom-right corner) on any job posting.
 2. **Score.** Claude (Haiku) rates your fit from 0 to 100 and shows matches, gaps and keywords.
@@ -49,21 +49,26 @@ The setup page has three steps. You can reopen it any time: click The Seer's too
 
 Every red row says what is wrong and how to fix it, with a command you can copy. Click **Check again** after fixing. **Next** unlocks when all four are green.
 
-**2. Your files.** Drop in everything true about your work: resumes, a career story, your LinkedIn profile saved as PDF, project notes. PDF, Word, text and Markdown files all work, up to 10 MB each. The Seer copies them into `~/TheSeer/My files`; your originals are not touched and nothing leaves your Mac at this step. Each file shows one of:
+**2. Your files.** Tell The Seer what is true about your work. The step asks for four things, each with its own **Upload** button:
+
+- **Career story**: your work history in your own words, the fullest record of what you did.
+- **Base resume 1, 2 and 3**: resumes you already use.
+
+Once a row has a file, its button reads **Replace** (it swaps in a different file) and **Remove** takes the file out. **Other files (optional)** takes anything else true about your work, such as your LinkedIn profile saved as PDF or project notes: drop files there or click **Add more files**. No row is required; one readable file is enough to continue. PDF, Word, text and Markdown files all work, up to 10 MB each. The Seer copies them into `~/TheSeer/My files`; your originals are not touched and nothing leaves your Mac at this step. Each file shows one of:
 
 - **read**: Claude gets its text.
 - **no readable text**: usually a scanned or password-protected PDF. Export it as Word or text instead.
 - **not supported**: use PDF, Word, text or Markdown.
 - **too big**: over 10 MB.
 
-You need at least one readable file. If your files hold more text than Claude can be given (over 300,000 characters), the step says so under the list, names the largest files, and **Next** stays off until you remove or shorten some. If a row in step 1 turns red while you are here, the step says so; click **Back** to fix it. The × removes The Seer's copy only. Folders can't be dropped; drop the files inside them. Files you put into `~/TheSeer/My files` in Finder are picked up too (top-level files only).
+You need at least one readable file. If your files hold more text than Claude can be given (over 300,000 characters), the step says so under the list, names the largest files, and **Next** stays off until you remove or shorten some. If a row in step 1 turns red while you are here, the step says so; click **Back** to fix it. **Remove** (the × on other files) removes The Seer's copy only. Folders can't be dropped; drop the files inside them. Files you put into `~/TheSeer/My files` in Finder are picked up too (top-level files only) and are listed under Other files.
 
 **3. Preferences.** Changes save as you make them.
 
 | Setting | Default | Notes |
 |---|---|---|
 | Fit bar | 40 | A resume is written only when a job scores at least this, out of 100. |
-| Resume length | 1 page | 1 or 2 pages. |
+| Resume length | 2 pages | 1 or 2 pages. |
 | Writer | Opus | Opus is best; Sonnet is faster and lighter on your usage. |
 | Save folder | `~/TheSeer/Resumes` | **Choose…** opens the macOS folder picker. |
 | Extra instructions for the writer | empty | Optional, up to 2,000 characters. See [Custom writing](#custom-writing). |
@@ -73,14 +78,15 @@ You need at least one readable file. If your files hold more text than Claude ca
 1. Open a job posting and click The Seer's **S** button in the bottom-right corner (drag it if it is in the way).
 2. The panel shows your fit score, which of your files is closest to the job, key matches, gaps with ways to address them, and the job's keywords.
 3. If the score is below your bar, you see "Fit 32/100 is below 40 — no resume written." and the writer is never called.
-4. At or above the bar, the panel shows progress (writing, building the PDF, fitting to your page limit), then "Resume ready", and Chrome sends a notification. A resume usually takes a minute or two.
+4. At or above the bar, the panel shows progress (writing, building the PDF, fitting to your page limit), then "Resume ready", and Chrome sends a notification. A resume usually takes two to three minutes.
 
 Each resume gets its own folder in your save folder, named `<Company> - <Role>`. A repeat becomes `... (2)`; nothing is overwritten. Inside:
 
 - The PDF and its `.tex` source, both named after the folder.
 - `First_Last_Resume.pdf`, a copy named from the name on the resume, ready to upload.
+- `notes.md`, the writer's notes on the job. Before writing, it reads the posting: the role type, the company's culture and tone, the must-haves and nice-to-haves, a gap table (each requirement, where your files show it or "NO MATCH", and what it did about it) and tone scores from 1 to 10. After writing, it adds a changelog: what it changed and why, what it cut, what it took from your other files, and the requirements it left unaddressed.
 
-The header puts your email and phone on one line and your LinkedIn and GitHub on the next, each only when your files give it.
+The header puts the contact details your files give (email, phone, LinkedIn, GitHub) on one line. Only when all four are present does it split into two lines: email and phone, then LinkedIn and GitHub.
 
 If the resume is longer than your page limit, The Seer trims the least important bullets and says so in the panel.
 
@@ -131,7 +137,7 @@ The Seer is an independent project. It is not made or endorsed by Anthropic.
 - **macOS asks for Keychain access.** Claude Code is reading its own sign-in. Choose Allow.
 - **No button on a page.** Reload the tab, and check that The Seer is switched on in its popup. Chrome does not allow extensions on `chrome://` pages or the Chrome Web Store.
 - **Timed out.** Scoring gives up after 2 minutes and writing after 6. Try again, or switch the writer to Sonnet.
-- **"Couldn't fit 1 page".** Set Resume length to 2 pages, or trim in the editor.
+- **"Couldn't fit N pages"** (for example "Couldn't fit 2 pages"). Trim the resume in the editor. If Resume length is 1 page, you can also set it to 2 pages.
 
 ## Update
 

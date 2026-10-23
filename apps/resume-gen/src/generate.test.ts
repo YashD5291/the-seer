@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,11 +17,20 @@ import {
   type WriteRequest,
   writeResume,
 } from './generate';
+import { resumeNotes } from './notes';
 import type { Profile } from './profile';
 import { type ResumeDoc, ResumeFormatError } from './resume-doc';
 import { type FitResult, ScoreFormatError } from './scorer/request';
 import { ProfileError, SetupError } from './setup-error';
-import { onePageTectonic, REAL_TEMPLATE, VALID, VALID_FIT, waitUntil } from './test-fixtures';
+import {
+  onePageTectonic,
+  REAL_TEMPLATE,
+  VALID,
+  VALID_ANALYSIS,
+  VALID_CHANGELOG,
+  VALID_FIT,
+  waitUntil,
+} from './test-fixtures';
 import type { WriterRequest } from './writer/request';
 
 const TECTONIC = Bun.which('tectonic') ?? '';
@@ -90,9 +99,11 @@ async function rejection(promise: Promise<unknown>): Promise<Error> {
 // ---------------------------------------------------------------------------
 
 const PROFILE: Profile = {
-  documents: [{ name: 'resume.pdf', modified: '2026-05-01', text: 'Alex Rivera\nI build retrieval systems.' }],
+  documents: [
+    { name: 'resume.pdf', modified: '2026-05-01', text: 'Alex Rivera\nI build retrieval systems.', kind: 'resume' },
+  ],
 };
-const DOCUMENT_TAG = '<document name="resume.pdf" modified="2026-05-01">';
+const DOCUMENT_TAG = '<document name="resume.pdf" kind="resume" modified="2026-05-01">';
 
 const REQUEST: WriteRequest = {
   command: 'write',
@@ -237,6 +248,60 @@ describe('writeResume', () => {
         details: 'gaps must be an array of strings',
       },
     ]);
+  });
+
+  describe('notes.md', () => {
+    // A build that leaves a real, empty job folder, as buildResume does before the files go in.
+    function folderBuild(): { folder: string; build: WriteDeps['build'] } {
+      const folder = newDir('job-');
+      return { folder, build: async () => ({ ...RESULT, folderPath: folder }) };
+    }
+
+    it('writes the analysis and the changelog to notes.md in the job folder before the result', async () => {
+      const { folder, build } = folderBuild();
+      const doc: ResumeDoc = { ...VALID, analysis: VALID_ANALYSIS, changelog: VALID_CHANGELOG };
+      const notesPath = join(folder, 'notes.md');
+      let notesAtResult = false;
+
+      await writeResume(REQUEST, fakeDeps({ runWriter: async () => ({ doc }), build }), (message) => {
+        if (message.type === 'result') notesAtResult = existsSync(notesPath);
+      });
+
+      expect(notesAtResult).toBe(true);
+      expect(readFileSync(notesPath, 'utf-8')).toBe(resumeNotes(doc) ?? '');
+      expect(readFileSync(notesPath, 'utf-8')).toContain('## Tone calibration');
+      expect(readFileSync(notesPath, 'utf-8')).toContain(`- ${VALID_CHANGELOG[0]}`);
+    });
+
+    it('writes no notes.md for a reply without an analysis or a changelog', async () => {
+      const { folder, build } = folderBuild();
+
+      const sent = await messagesOf(fakeDeps({ build }));
+
+      expect(sent.at(-1)).toMatchObject({ type: 'result' });
+      expect(readdirSync(folder)).toEqual([]);
+    });
+
+    it('still sends the finished resume when notes.md cannot be written, and logs why', async () => {
+      const doc: ResumeDoc = { ...VALID, analysis: VALID_ANALYSIS, changelog: VALID_CHANGELOG };
+      const missing = join(newDir('job-'), 'gone');
+      const result = { ...RESULT, folderPath: missing };
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      try {
+        const sent = await messagesOf(fakeDeps({ runWriter: async () => ({ doc }), build: async () => result }));
+        const logged = errorSpy.mock.calls.map((args) => args.join(' '));
+        const notesLine = logged.find((line) => line.includes('notes.md'));
+
+        expect(sent.at(-1)).toStrictEqual({ type: 'result', ...result });
+        expect(sent.some((message) => message.type === 'error')).toBe(false);
+        expect(notesLine).toBeDefined();
+        expect(notesLine).toStartWith(`[theseer-pdf] notes.md not written to ${missing}:`);
+        expect(notesLine).toContain('ENOENT');
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
   });
 
   it('builds the writer request from the profile, the job and the page budget', async () => {

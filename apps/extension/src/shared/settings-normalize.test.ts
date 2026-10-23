@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   CLAUDE_MODELS,
+  DEFAULT_MAX_PAGES,
   MAX_WRITER_NOTES,
   normalizeClaudeModel,
   normalizeMaxPages,
@@ -64,24 +65,31 @@ describe('normalizeClaudeModel', () => {
   });
 });
 
+describe('DEFAULT_MAX_PAGES', () => {
+  it('is 2: a resume may run to two pages unless the user picks one', () => {
+    assert.equal(DEFAULT_MAX_PAGES, 2);
+  });
+});
+
 describe('normalizeMaxPages', () => {
   it('keeps 1 and 2', () => {
     assert.equal(normalizeMaxPages(1), 1);
     assert.equal(normalizeMaxPages(2), 2);
   });
 
-  it('falls back to 1 for any other number', () => {
-    assert.equal(normalizeMaxPages(3), 1);
-    assert.equal(normalizeMaxPages(0), 1);
+  it('falls back to 2 for any other number', () => {
+    assert.equal(normalizeMaxPages(3), 2);
+    assert.equal(normalizeMaxPages(0), 2);
   });
 
-  it('falls back to 1 for strings, including numeric ones', () => {
-    assert.equal(normalizeMaxPages('3'), 1);
-    assert.equal(normalizeMaxPages('2'), 1);
+  it('falls back to 2 for strings, including numeric ones', () => {
+    assert.equal(normalizeMaxPages('3'), 2);
+    assert.equal(normalizeMaxPages('1'), 2);
   });
 
-  it('falls back to 1 when nothing is stored', () => {
-    assert.equal(normalizeMaxPages(undefined), 1);
+  it('falls back to 2 when nothing is stored', () => {
+    assert.equal(normalizeMaxPages(undefined), 2);
+    assert.equal(normalizeMaxPages(null), 2);
   });
 });
 

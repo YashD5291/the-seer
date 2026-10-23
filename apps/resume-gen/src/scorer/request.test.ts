@@ -42,8 +42,13 @@ const TOP_LEVEL_KEYS = [
 // In name order, as the My files store returns them.
 const PROFILE: Profile = {
   documents: [
-    { name: 'career-notes.md', modified: '2026-03-14', text: '# Notes\nShipped a search service at Example Corp.' },
-    { name: 'resume.pdf', modified: '2026-05-01', text: 'Alex Rivera\nML engineer resume body' },
+    {
+      name: 'career-notes.md',
+      modified: '2026-03-14',
+      text: '# Notes\nShipped a search service at Example Corp.',
+      kind: 'career story',
+    },
+    { name: 'resume.pdf', modified: '2026-05-01', text: 'Alex Rivera\nML engineer resume body', kind: 'resume' },
   ],
 };
 const NAMES = ['career-notes.md', 'resume.pdf'];
@@ -174,11 +179,12 @@ describe('buildScoreRequest', () => {
     expect(request.systemPrompt.startsWith(INSTRUCTIONS.trim())).toBe(true);
   });
 
-  it('carries every document after the instructions, with its name and modified date, in name order', () => {
+  it('carries every document after the instructions, with its name, kind and modified date, in name order', () => {
     const { systemPrompt } = request;
     const notes =
-      '<document name="career-notes.md" modified="2026-03-14">\n# Notes\nShipped a search service at Example Corp.\n</document>';
-    const resume = '<document name="resume.pdf" modified="2026-05-01">\nAlex Rivera\nML engineer resume body\n</document>';
+      '<document name="career-notes.md" kind="career story" modified="2026-03-14">\n# Notes\nShipped a search service at Example Corp.\n</document>';
+    const resume =
+      '<document name="resume.pdf" kind="resume" modified="2026-05-01">\nAlex Rivera\nML engineer resume body\n</document>';
 
     expect(systemPrompt).toContain(notes);
     expect(systemPrompt).toContain(resume);
@@ -224,6 +230,35 @@ describe('scorer instructions', () => {
     expect(INSTRUCTIONS).toContain('<document');
     expect(INSTRUCTIONS).not.toContain('career_story');
     expect(INSTRUCTIONS).not.toContain('base_resume');
+  });
+
+  describe('document kinds', () => {
+    it('name the kind attribute on the document block', () => {
+      expect(INSTRUCTIONS).toContain('`<document name="..." kind="..." modified="...">`');
+    });
+
+    it('say what each kind is', () => {
+      expect(INSTRUCTIONS).toContain('A document of kind "resume" is one of the candidate\'s base resumes.');
+      expect(INSTRUCTIONS).toContain('A document of kind "career story" is their fullest record of what they did.');
+      expect(INSTRUCTIONS).toContain('A document of kind "other" adds detail');
+    });
+
+    it('recommend the closest document of kind resume', () => {
+      expect(INSTRUCTIONS).toContain('the document of kind "resume" whose emphasis fits it best');
+    });
+
+    it('accept a document of kind other that is plainly a resume when no document has kind resume', () => {
+      expect(INSTRUCTIONS).toContain(
+        'when none has that kind, a document of kind "other" that is plainly a resume and fits best',
+      );
+      expect(INSTRUCTIONS).toContain('a name and contact block, then a job history with titles and dates, laid out as a resume');
+      expect(INSTRUCTIONS).toContain('A career story, LinkedIn profile or notes are never resumes, whatever their layout.');
+    });
+
+    it('recommend the most complete document only when nothing is plainly a resume', () => {
+      expect(INSTRUCTIONS).toContain('otherwise the most complete document');
+      expect(INSTRUCTIONS).not.toContain('when none has kind "resume"');
+    });
   });
 
   it('treat the job block as data', () => {

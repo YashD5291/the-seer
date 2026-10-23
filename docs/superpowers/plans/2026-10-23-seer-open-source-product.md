@@ -383,6 +383,19 @@ Owner decisions: (1) "Your files" asks separately for a career story and three b
 - [ ] **Step 3: Implement** — the shipped template's preamble becomes the owner's preamble verbatim except `pdfauthor={}`, with no body content; keep the font setup that reproduces the owner's compiled look under tectonic (if the owner's file compiles to a different font than the current template, the owner's result wins); renderer output matches the owner's body structure and spacing. Default pages 2 in the helper and CLI.
 - [ ] **Step 4:** Compile `SAMPLE_DOC` and a doc carrying the owner's file's structure (scratch only, never committed) and compare side by side with the owner's PDF: same fonts, same spacing, same section look. No owner data in tracked files. Checks + `bun run compile`; stage — message: `feat(resume-gen): owner's resume format is the built-in look; two pages by default`.
 
+### Task Y4: Merge the owner's software-engineering prompt into the writer
+
+Owner decision (2026-10-24): keep the tone and role-type analysis "and everything" from the owner's earlier prompt (kept outside the repo; path given in the dispatch). Its Markdown output format does not apply (the writer returns JSON); everything else is merged, generalised beyond software roles where it is software-specific, and the existing Truth rules keep precedence.
+
+**Files:** `apps/resume-gen/src/writer/resume-writer.md`, `src/writer/request.ts` (schema), `src/resume-doc.ts`, `src/generate.ts` (notes file), README.md (+ tests)
+
+**Interfaces:**
+- Produces: `ResumeDoc.analysis?: { role_type: string; company_dna: string; must_haves: string[]; nice_to_haves: string[]; core_problems: string[]; seniority: string; gaps: { requirement: string; evidence: string; action: string }[]; tone: { technical_depth: number; culture_emphasis: number; formality: number; innovation_vs_stability: number; individual_vs_team: number } }` and `ResumeDoc.changelog?: string[]`; the writer schema lists `analysis` FIRST and `changelog` LAST and requires both (so the model analyses before it writes); the validator treats them as optional (old replies still parse); `notes.md` written next to the PDF.
+
+- [ ] **Step 1: Failing tests** — schema property order starts with `analysis` and ends with `changelog`, both required, tone values integers 1–10; `validateResumeDoc` accepts a doc without them and rejects malformed ones (tone 0 or 11, non-array changelog); `writeResume` writes `notes.md` in the output folder (analysis sections + changelog) when present and none when absent; instructions tests pin the merged sections (role-type guide, company DNA, requirements, gap analysis, tone calibration, summary 60–80% rewrite, skills rebuild, bullet actions KEEP/REPHRASE/MERGE/ADD/REMOVE/SKIP, education unchanged, keep every position, at most five bullets per role, skills↔experience sync, no em/en dashes in resume text) and every existing Truth sentence.
+- [ ] **Step 2: Implement** — merge every rule from the owner's prompt into the matching section of `resume-writer.md` (generalise "software engineering" guidance to "the role's field", keep the frontend/backend/full-stack guide as examples for software roles); reconcile bullet caps: never more than five bullets per role, one-page caps unchanged, two-page targets within five. No em or en dashes in summary, skills or bullets (date ranges are typeset separately).
+- [ ] **Step 3: Live check** — compile, then write one resume for a job in the quality set; confirm `notes.md`, the analysis, one or two pages, and no unsupported claim. README: mention `notes.md`. Checks; stage — message: `feat(resume-gen): analysis-first writer with the owner's tailoring rules; notes.md per resume`.
+
 ---
 
 ## Part C — Cleanup, docs, verification

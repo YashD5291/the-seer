@@ -2,7 +2,7 @@
 
 import { errorMessage } from '../shared/error-message.js';
 import { createHelperClient, HelperError } from '../shared/helper-client.js';
-import type { HelperStatus, MyFile } from '../shared/helper-types.js';
+import type { HelperStatus, MyFile, Slot } from '../shared/helper-types.js';
 import { CLAUDE_MODELS, MAX_WRITER_NOTES } from '../shared/settings-normalize.js';
 import { getSettings, saveSettings } from '../shared/storage.js';
 import type { SeerSettings } from '../shared/types.js';
@@ -14,10 +14,15 @@ import {
   fileStatusText,
   folderFailure,
   isTooBig,
+  otherFiles,
   profileProblemText,
+  slotRows,
+  TOO_BIG_TEXT,
   toBase64,
   tooBigFile,
+  withFile,
 } from './files.js';
+import type { SlotRow } from './files.js';
 
 type Step = 1 | 2 | 3;
 
@@ -39,6 +44,8 @@ const state = {
   profileProblem: null as string | null,
   /** Bumped on every add or remove, so a status that was already on its way cannot undo it. */
   filesVersion: 0,
+  /** The slot whose Upload or Replace button opened the file picker. */
+  pendingSlot: null as Slot | null,
 };
 
 // ─── DOM ──────────────────────────────────────────────────────────────
@@ -76,6 +83,8 @@ const checkList = byId<HTMLUListElement>('check-list');
 const checkAgainButton = byId<HTMLButtonElement>('check-again');
 const checkNext = byId<HTMLButtonElement>('check-next');
 
+const slotList = byId<HTMLUListElement>('slot-list');
+const slotInput = byId<HTMLInputElement>('slot-input');
 const dropZone = byId<HTMLDivElement>('drop-zone');
 const fileInput = byId<HTMLInputElement>('file-input');
 const filesProgress = byId<HTMLParagraphElement>('files-progress');
@@ -235,10 +244,6 @@ async function recheckFiles(): Promise<void> {
 
 // ─── Step 2: Your files ───────────────────────────────────────────────
 
-function byName(a: MyFile, b: MyFile): number {
-  return a.name.localeCompare(b.name);
-}
-
 async function removeFile(file: MyFile, button: HTMLButtonElement): Promise<void> {
   if (file.status === 'too-big') {
     state.tooBig = state.tooBig.filter((f) => f.name !== file.name);
@@ -271,36 +276,64 @@ function fileRowElement(file: MyFile): HTMLLIElement {
   return li;
 }
 
+function slotRowElement(row: SlotRow): HTMLLIElement {
+  const { file } = row;
+  const li = fromTemplate('slot-row');
+  li.dataset.read = String(file?.status === 'read');
+  field(li, 'label').textContent = row.label;
+  field(li, 'hint').textContent = row.hint;
+  const name = field(li, 'name');
+  setText(name, file?.name);
+  name.title = file?.name ?? '';
+  setText(field(li, 'status'), file ? fileStatusText(file) : undefined);
+  const upload = field<HTMLButtonElement>(li, 'upload');
+  upload.textContent = file ? 'Replace' : 'Upload';
+  upload.setAttribute('aria-label', `${upload.textContent} ${row.label}`);
+  upload.addEventListener('click', () => chooseForSlot(row.slot));
+  const remove = field<HTMLButtonElement>(li, 'remove');
+  remove.hidden = !file;
+  if (file) {
+    remove.setAttribute('aria-label', `Remove ${file.name}`);
+    remove.addEventListener('click', () => { void removeFile(file, remove); });
+  }
+  return li;
+}
+
 function renderFiles(): void {
-  const shown = [...state.files, ...state.tooBig];
-  fileList.replaceChildren(...shown.map(fileRowElement));
-  fileList.hidden = shown.length === 0;
-  filesEmpty.hidden = shown.length > 0;
+  const others = [...otherFiles(state.files), ...state.tooBig];
+  slotList.replaceChildren(...slotRows(state.files).map(slotRowElement));
+  fileList.replaceChildren(...others.map(fileRowElement));
+  fileList.hidden = others.length === 0;
+  filesEmpty.hidden = state.files.length + state.tooBig.length > 0;
   setText(filesProblem, profileProblemText(state.files, state.profileProblem));
   filesBlocked.hidden = allGreen(state.rows);
   filesNext.disabled = !canEnter(3);
   renderPills();
 }
 
-/** Sends one file to the helper, or lists it as too big without sending it. */
-async function addOne(file: File): Promise<void> {
+/**
+ * Sends one file to the helper, into `slot` when given. A file that is too big is never sent: a slot upload
+ * fails with the reason (its row still shows the file it had); any other file is listed as too big.
+ */
+async function addOne(file: File, slot: Slot | undefined): Promise<void> {
   if (isTooBig(file.size)) {
+    if (slot !== undefined) throw new Error(TOO_BIG_TEXT);
     state.tooBig = [...state.tooBig.filter((f) => f.name !== file.name), tooBigFile(file)];
     return;
   }
   setText(filesProgress, `Adding ${file.name}…`);
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const added = await helper.addFile(file.name, toBase64(bytes), file.lastModified);
-  state.files = [...state.files, added].sort(byName);
+  const added = await helper.addFile(file.name, toBase64(bytes), file.lastModified, slot);
+  state.files = withFile(state.files, added);
   state.filesVersion += 1;
 }
 
 /** Adds each file in turn; `failures` holds lines already known to fail (dropped folders). */
-async function addFiles(files: File[], failures: string[] = []): Promise<void> {
+async function addFiles(files: File[], failures: string[] = [], slot?: Slot): Promise<void> {
   const versionBefore = state.filesVersion;
   for (const file of files) {
     try {
-      await addOne(file);
+      await addOne(file, slot);
     } catch (err) {
       console.error(`[Seer Setup] Could not add ${file.name}: ${errorMessage(err)}`);
       failures.push(`${file.name}: ${errorMessage(err)}`);
@@ -326,7 +359,21 @@ function droppedItems(data: DataTransfer | null): { files: File[]; folders: stri
   return { files, folders };
 }
 
+function chooseForSlot(slot: Slot): void {
+  state.pendingSlot = slot;
+  slotInput.click();
+}
+
 function wireFilesStep(): void {
+  slotInput.accept = ACCEPTED_TYPES;
+  slotInput.addEventListener('change', () => {
+    const [file] = Array.from(slotInput.files ?? []);
+    const slot = state.pendingSlot;
+    slotInput.value = '';
+    state.pendingSlot = null;
+    if (file && slot) void addFiles([file], [], slot);
+  });
+
   fileInput.accept = ACCEPTED_TYPES;
   byId('choose-files').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {

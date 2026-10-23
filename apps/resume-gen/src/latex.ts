@@ -26,6 +26,9 @@ const PREAMBLE_END_MARKER = '\\sbox\\ANDbox';
 // The hyperref option that sets the PDF's author, with whatever value the template holds.
 const PDF_AUTHOR = /pdfauthor=\{[^}]*\}/;
 
+// More contact links than this do not fit on one header line.
+const MAX_LINKS_PER_LINE = 3;
+
 // Indentation of the generated body, one step per nesting level of the template's own layout.
 const I = '    ';
 const II = I + I;
@@ -54,7 +57,7 @@ export function renderResumeLatex(doc: ResumeDoc, preamble: string): string {
     projectsSection(doc.projects ?? []),
     educationSection(doc.education),
   ].filter((block) => block !== '');
-  return `${withPdfAuthor(preamble, doc.name)}\n${blocks.join('\n\n')}\n\n\\end{document}`;
+  return `${withPdfAuthor(preamble, doc.name)}\n\n${blocks.join('\n\n')}\n\n\\end{document}`;
 }
 
 // The template ships with an empty author; the name on the resume fills it.
@@ -63,8 +66,7 @@ function withPdfAuthor(preamble: string, name: string): string {
   return preamble.replace(PDF_AUTHOR, () => `pdfauthor={${escapeLatex(name)}}`);
 }
 
-// The header lists email and phone on one line and LinkedIn and GitHub on the next, each when
-// present; there is no location line. Four links on one line overflow the text width and strand a bar.
+// The header holds the name and the contact links; there is no location line.
 function header({ name, contact }: ResumeDoc): string {
   return [
     `${I}\\begin{header}`,
@@ -81,7 +83,8 @@ function header({ name, contact }: ResumeDoc): string {
   ].join('\n');
 }
 
-// Each non-empty line's links, separated by bars; a blank line between lines starts a new one.
+// Up to three links share one line, separated by bars. All four overflow the text width and strand a bar,
+// so they split into email and phone, then LinkedIn and GitHub. A blank line between lines starts a new one.
 function contactLines({ email, phone, linkedin, github }: ResumeDoc['contact']): string[] {
   const reach: Link[] = [];
   if (email) reach.push({ url: `mailto:${email}`, text: email });
@@ -89,9 +92,9 @@ function contactLines({ email, phone, linkedin, github }: ResumeDoc['contact']):
   const profiles: Link[] = [];
   if (linkedin) profiles.push({ url: withScheme(linkedin), text: linkedin });
   if (github) profiles.push({ url: withScheme(github), text: github });
-  return [reach, profiles]
-    .filter((links) => links.length > 0)
-    .map((links) => links.map((link) => `${II}{${hyperlink(link)}}`).join(`\n${II}{|}\n`));
+  const links = [...reach, ...profiles];
+  const lines = links.length > MAX_LINKS_PER_LINE ? [reach, profiles] : [links];
+  return lines.map((line) => line.map((link) => `${II}{${hyperlink(link)}}`).join(`\n${II}{|}\n`));
 }
 
 function telNumber(phone: string): string {
@@ -122,7 +125,7 @@ function experienceSection(jobs: Job[]): string {
 }
 
 function jobHeading({ title, company, location }: Job): string {
-  const where = location ? `${company} -- ${location}` : company;
+  const where = location ? `${company}, ${location}` : company;
   return `\\textbf{${escapeLatex(title)}} | ${escapeLatex(where)}`;
 }
 

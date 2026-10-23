@@ -6,7 +6,7 @@ import type { HelperStatus, MyFile } from '../shared/helper-types.ts';
 
 const VERSION = '1.0.0';
 
-const READ_FILE: MyFile = { name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23' };
+const READ_FILE: MyFile = { name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23', slot: null };
 
 const STATUS: HelperStatus = {
   version: VERSION,

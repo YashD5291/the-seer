@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -27,6 +28,7 @@ import {
   readDocuments,
   removeMyFile,
   safeFileName,
+  SLOTS,
 } from './store';
 import { minimalPdf } from './test-pdf';
 
@@ -79,6 +81,14 @@ async function rejection(promise: Promise<unknown>): Promise<ProfileError> {
 function localToday(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function slotsPath(): string {
+  return join(dir, '.seer', 'slots.json');
+}
+
+function readSlotMap(): unknown {
+  return JSON.parse(readFileSync(slotsPath(), 'utf8'));
 }
 
 function byName(files: MyFile[], name: string): MyFile {
@@ -153,7 +163,14 @@ describe('listMyFiles', () => {
 
     const [file] = await listMyFiles(dir);
 
-    expect(file).toEqual({ name: 'story.md', kind: 'text', words: 4, status: 'read', modified: '2026-03-05' });
+    expect(file).toEqual({
+      name: 'story.md',
+      kind: 'text',
+      words: 4,
+      status: 'read',
+      modified: '2026-03-05',
+      slot: null,
+    });
   });
 
   it('reads the text of a PDF', async () => {
@@ -520,6 +537,227 @@ describe('addMyFile', () => {
   });
 });
 
+describe('slots', () => {
+  const bytes = (text: string) => new TextEncoder().encode(text);
+
+  it('has the four places on the setup page, in order', () => {
+    expect(SLOTS).toEqual(['career-story', 'resume-1', 'resume-2', 'resume-3']);
+  });
+
+  it('records the slot of an added file in .seer/slots.json and reports it', async () => {
+    const added = await addMyFile(dir, 'My CV.pdf', minimalPdf('Alex Rivera'), undefined, 'resume-2');
+
+    expect(added).toMatchObject({ name: 'My CV.pdf', slot: 'resume-2' });
+    expect(readSlotMap()).toEqual({ 'resume-2': 'My CV.pdf' });
+    expect(byName(await listMyFiles(dir), 'My CV.pdf').slot).toBe('resume-2');
+  });
+
+  it('reports slot null for a file added without a slot and for a file put in Finder', async () => {
+    const added = await addMyFile(dir, 'notes.md', bytes('Notes here'));
+    put('finder.md', 'Dropped in Finder');
+
+    const files = await listMyFiles(dir);
+
+    expect(added.slot).toBeNull();
+    expect(files.map((file) => file.slot)).toEqual([null, null]);
+    expect(existsSync(slotsPath())).toBe(false);
+  });
+
+  it('keeps one file in each slot', async () => {
+    await addMyFile(dir, 'story.md', bytes('Career story text'), undefined, 'career-story');
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+    await addMyFile(dir, 'c.md', bytes('Third resume'), undefined, 'resume-3');
+
+    const files = await listMyFiles(dir);
+
+    expect(files.map((file) => [file.name, file.slot])).toEqual([
+      ['a.md', 'resume-1'],
+      ['c.md', 'resume-3'],
+      ['story.md', 'career-story'],
+    ]);
+  });
+
+  it('deletes the earlier file and its cache entry when a slot gets a new upload', async () => {
+    await addMyFile(dir, 'old.pdf', minimalPdf('Old resume'), undefined, 'resume-1');
+    expect(existsSync(cachePath('old.pdf'))).toBe(true);
+
+    const added = await addMyFile(dir, 'new.pdf', minimalPdf('New resume'), undefined, 'resume-1');
+
+    expect(added.slot).toBe('resume-1');
+    expect(readdirSync(dir).sort()).toEqual(['.seer', 'new.pdf']);
+    expect(existsSync(cachePath('old.pdf'))).toBe(false);
+    expect(readSlotMap()).toEqual({ 'resume-1': 'new.pdf' });
+  });
+
+  it('lets a same-name re-upload keep its name', async () => {
+    await addMyFile(dir, 'My CV.pdf', minimalPdf('Old resume'), undefined, 'resume-1');
+
+    const added = await addMyFile(dir, 'My CV.pdf', minimalPdf('New resume'), undefined, 'resume-1');
+
+    expect(added.name).toBe('My CV.pdf');
+    expect(readdirSync(dir).sort()).toEqual(['.seer', 'My CV.pdf']);
+    expect(readCache('My CV.pdf').text).toContain('New resume');
+    expect(readSlotMap()).toEqual({ 'resume-1': 'My CV.pdf' });
+  });
+
+  it('leaves the other slots and unslotted files alone', async () => {
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+    await addMyFile(dir, 'b.md', bytes('Second resume'), undefined, 'resume-2');
+    put('extra.md', 'Extra notes');
+
+    await addMyFile(dir, 'a2.md', bytes('First resume again'), undefined, 'resume-1');
+
+    expect(readdirSync(dir).sort()).toEqual(['.seer', 'a2.md', 'b.md', 'extra.md']);
+    expect(readSlotMap()).toEqual({ 'resume-1': 'a2.md', 'resume-2': 'b.md' });
+  });
+
+  it('numbers an upload to a slot after an unrelated file with the same name', async () => {
+    put('cv.md', 'Dropped in Finder');
+
+    const added = await addMyFile(dir, 'cv.md', bytes('Uploaded to a slot'), undefined, 'resume-1');
+
+    expect(added).toMatchObject({ name: 'cv (2).md', slot: 'resume-1' });
+    expect(byName(await listMyFiles(dir), 'cv.md').slot).toBeNull();
+  });
+
+  it('clears the slot when its file is removed', async () => {
+    await addMyFile(dir, 'story.md', bytes('Career story text'), undefined, 'career-story');
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+
+    const rest = await removeMyFile(dir, 'story.md');
+
+    expect(rest.map((file) => [file.name, file.slot])).toEqual([['a.md', 'resume-1']]);
+    expect(readSlotMap()).toEqual({ 'resume-1': 'a.md' });
+    put('story.md', 'A different file with the old name');
+    expect(byName(await listMyFiles(dir), 'story.md').slot).toBeNull();
+  });
+
+  it('drops a slot whose file was deleted in Finder on the next listing', async () => {
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+    await addMyFile(dir, 'b.md', bytes('Second resume'), undefined, 'resume-2');
+    rmSync(join(dir, 'a.md'));
+
+    const files = await listMyFiles(dir);
+
+    expect(files.map((file) => [file.name, file.slot])).toEqual([['b.md', 'resume-2']]);
+    expect(readSlotMap()).toEqual({ 'resume-2': 'b.md' });
+    put('a.md', 'A new file with the old name');
+    expect(byName(await listMyFiles(dir), 'a.md').slot).toBeNull();
+  });
+
+  it('treats a corrupt slots.json as empty, logs it, and replaces it on the next add', async () => {
+    put('story.md', 'Career story text');
+    mkdirSync(join(dir, '.seer'));
+    writeFileSync(slotsPath(), '{"career-story": "story.md"');
+
+    const files = await listMyFiles(dir);
+
+    expect(files.map((file) => file.slot)).toEqual([null]);
+    expect(logged()).toContain('[theseer-pdf]');
+    expect(logged()).toContain('slots.json');
+
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+    expect(readSlotMap()).toEqual({ 'resume-1': 'a.md' });
+  });
+
+  it.each([
+    ['a list', '["story.md"]'],
+    ['an unknown slot', '{"resume-9": "story.md"}'],
+    ['a file name that is not text', '{"career-story": 7}'],
+    ['null', 'null'],
+  ])('treats a slots.json holding %s as empty and logs it', async (_label, content) => {
+    put('story.md', 'Career story text');
+    mkdirSync(join(dir, '.seer'));
+    writeFileSync(slotsPath(), content);
+
+    const files = await listMyFiles(dir);
+
+    expect(files.map((file) => file.slot)).toEqual([null]);
+    expect(logged()).toContain('slots.json');
+  });
+
+  it('never deletes outside My files for a slot map that names such a path', async () => {
+    writeFileSync(join(root, 'outside.md'), 'precious');
+    mkdirSync(join(dir, '.seer'));
+    writeFileSync(slotsPath(), JSON.stringify({ 'resume-1': '../outside.md' }));
+
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+
+    expect(readFileSync(join(root, 'outside.md'), 'utf8')).toBe('precious');
+    expect(readSlotMap()).toEqual({ 'resume-1': 'a.md' });
+  });
+
+  it('keeps the earlier file when the new upload is refused', async () => {
+    await addMyFile(dir, 'old.md', bytes('Old resume'), undefined, 'resume-1');
+
+    const tooBig = await rejection(addMyFile(dir, 'huge.md', new Uint8Array(MAX_FILE_BYTES + 1), undefined, 'resume-1'));
+    const unnamed = await rejection(addMyFile(dir, '...', bytes('x'), undefined, 'resume-1'));
+
+    expect(tooBig.message).toContain('over 10 MB');
+    expect(unnamed.message).toContain("Can't add a file named");
+    expect(readdirSync(dir).sort()).toEqual(['.seer', 'old.md']);
+    expect(readSlotMap()).toEqual({ 'resume-1': 'old.md' });
+  });
+
+  it('survives two uploads to the same slot at once: one file holds it, the other is an unslotted file or gone', async () => {
+    await addMyFile(dir, 'old.md', bytes('Old resume'), undefined, 'resume-1');
+
+    await Promise.all([
+      addMyFile(dir, 'one.md', bytes('First upload'), undefined, 'resume-1'),
+      addMyFile(dir, 'two.md', bytes('Second upload'), undefined, 'resume-1'),
+    ]);
+
+    const files = await listMyFiles(dir);
+    const slotted = files.filter((file) => file.slot === 'resume-1');
+    expect(slotted).toHaveLength(1);
+    expect(['one.md', 'two.md']).toContain(slotted[0].name);
+    expect(files.some((file) => file.name === 'old.md')).toBe(false);
+    expect(files.filter((file) => file.slot !== 'resume-1').every((file) => file.slot === null)).toBe(true);
+    expect(readSlotMap()).toEqual({ 'resume-1': slotted[0].name });
+  });
+
+  it('keeps both slots when uploads to different slots land at once', async () => {
+    await Promise.all([
+      addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1'),
+      addMyFile(dir, 'b.md', bytes('Second resume'), undefined, 'resume-2'),
+      addMyFile(dir, 'story.md', bytes('Career story text'), undefined, 'career-story'),
+    ]);
+
+    expect(readSlotMap()).toEqual({ 'resume-1': 'a.md', 'resume-2': 'b.md', 'career-story': 'story.md' });
+  });
+
+  it('writes slots.json through a temp file, leaving none behind', async () => {
+    await addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1');
+    await addMyFile(dir, 'b.md', bytes('Second resume'), undefined, 'resume-2');
+
+    expect(readdirSync(join(dir, '.seer')).sort()).toEqual(['a.md.json', 'b.md.json', 'slots.json']);
+  });
+
+  it('explains a slot map it cannot write', async () => {
+    mkdirSync(join(dir, '.seer'));
+    chmodSync(join(dir, '.seer'), 0o500);
+
+    try {
+      const error = await rejection(addMyFile(dir, 'a.md', bytes('First resume'), undefined, 'resume-1'));
+
+      expect(error.message).toContain("Can't save");
+      expect(error.message).toContain('slots.json');
+    } finally {
+      chmodSync(join(dir, '.seer'), 0o700);
+    }
+  });
+
+  it('explains a slot map it cannot read', async () => {
+    mkdirSync(join(dir, '.seer'));
+    mkdirSync(slotsPath());
+
+    const error = await rejection(listMyFiles(dir));
+
+    expect(error.message).toContain("Can't read");
+    expect(error.message).toContain('slots.json');
+  });
+});
+
 describe('removeMyFile', () => {
   it('deletes the file and its cache entry and returns the rest', async () => {
     await addMyFile(dir, 'My CV.pdf', minimalPdf('Alex Rivera'));
@@ -577,7 +815,23 @@ describe('readDocuments', () => {
 
     expect(documents.map((document) => document.name)).toEqual(['a-cv.pdf', 'b-story.md']);
     expect(documents[0].text).toContain('Alex Rivera Staff Engineer');
-    expect(documents[1]).toEqual({ name: 'b-story.md', modified: '2026-01-31', text: 'Built things' });
+    expect(documents[1]).toEqual({ name: 'b-story.md', modified: '2026-01-31', text: 'Built things', kind: 'other' });
+  });
+
+  it('labels each document by its slot: career story, resume or other', async () => {
+    await addMyFile(dir, 'story.md', new TextEncoder().encode('Built things'), undefined, 'career-story');
+    await addMyFile(dir, 'cv-1.md', new TextEncoder().encode('Resume one'), undefined, 'resume-1');
+    await addMyFile(dir, 'cv-3.md', new TextEncoder().encode('Resume three'), undefined, 'resume-3');
+    put('linkedin.md', 'Profile text');
+
+    const documents = await readDocuments(dir);
+
+    expect(documents.map((document) => [document.name, document.kind])).toEqual([
+      ['cv-1.md', 'resume'],
+      ['cv-3.md', 'resume'],
+      ['linkedin.md', 'other'],
+      ['story.md', 'career story'],
+    ]);
   });
 
   it('fails with the setup-pointing error when no file has readable text', async () => {

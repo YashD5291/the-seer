@@ -52,21 +52,29 @@
     <section id="step-2" hidden aria-labelledby="step-2-title" class="rounded-xl bg-white border border-zinc-200 shadow-sm">
       <div class="px-6 pt-5 pb-4 border-b border-zinc-100">
         <h2 id="step-2-title" tabindex="-1" class="text-base font-semibold focus:outline-none">Your files</h2>
-        <p class="text-sm text-zinc-500 mt-1">Add your resumes, career story, LinkedIn profile PDF, project notes — anything true about your work. Files stay on this Mac.</p>
+        <p class="text-sm text-zinc-500 mt-1">Tell The Seer what is true about your work. Add your career story and up to three resumes you already use — one file is enough to start. Files stay on this Mac.</p>
       </div>
       <div class="px-6 py-5">
-        <div id="drop-zone" data-over="false"
-          class="rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 px-6 py-10 text-center transition-colors data-[over=true]:border-emerald-500 data-[over=true]:bg-emerald-50">
-          <p class="text-sm font-medium text-zinc-700">Drop your files here</p>
-          <p class="text-xs text-zinc-500 mt-1">PDF, Word, text or Markdown · up to 10 MB each</p>
-          <button type="button" id="choose-files"
-            class="mt-4 rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-300 hover:bg-zinc-100">Choose files…</button>
-          <input type="file" id="file-input" multiple hidden>
+        <ul id="slot-list" class="divide-y divide-zinc-100 rounded-lg border border-zinc-200"></ul>
+        <input type="file" id="slot-input" hidden>
+
+        <div class="mt-6">
+          <h3 class="text-sm font-medium text-zinc-800">Other files (optional)</h3>
+          <p class="text-xs text-zinc-500 mt-1">Anything else true about your work: your LinkedIn profile saved as PDF, project notes, more resumes.</p>
+          <div id="drop-zone" data-over="false"
+            class="mt-3 rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 px-6 py-6 text-center transition-colors data-[over=true]:border-emerald-500 data-[over=true]:bg-emerald-50">
+            <p class="text-sm font-medium text-zinc-700">Drop your files here</p>
+            <p class="text-xs text-zinc-500 mt-1">PDF, Word, text or Markdown · up to 10 MB each</p>
+            <button type="button" id="choose-files"
+              class="mt-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-300 hover:bg-zinc-100">Add more files</button>
+            <input type="file" id="file-input" multiple hidden>
+          </div>
+          <ul id="file-list" class="mt-3 divide-y divide-zinc-100 rounded-lg border border-zinc-200" hidden></ul>
         </div>
+
         <p id="files-progress" class="mt-3 text-sm text-zinc-500" aria-live="polite" hidden></p>
         <p id="files-error" role="alert" class="mt-3 text-sm text-red-600 whitespace-pre-line" hidden></p>
         <p id="files-empty" class="mt-4 text-sm text-zinc-400">No files yet. Add at least one file The Seer can read to continue.</p>
-        <ul id="file-list" class="mt-4 divide-y divide-zinc-100 rounded-lg border border-zinc-200" hidden></ul>
         <p id="files-problem" role="alert" class="mt-3 text-sm text-red-600" hidden></p>
         <p id="files-blocked" class="mt-3 text-sm text-zinc-500" hidden>Something in step 1 needs attention — click Back to fix it.</p>
       </div>
@@ -169,6 +177,22 @@
             class="rounded-lg px-3 py-2 text-xs font-medium text-zinc-700 bg-white border border-zinc-300 hover:bg-zinc-50">Copy</button>
         </div>
       </div>
+    </li>
+  </template>
+
+  <!-- One slot row: the career story or a base resume -->
+  <template id="slot-row">
+    <li class="group px-4 py-3 flex items-center gap-3" data-read="false">
+      <div class="flex-1 min-w-0">
+        <p data-field="label" class="text-sm font-medium text-zinc-800"></p>
+        <p data-field="hint" class="text-xs text-zinc-500"></p>
+        <p data-field="name" class="mt-1 text-sm text-zinc-700 truncate"></p>
+        <p data-field="status" class="text-xs text-amber-700 group-data-[read=true]:text-emerald-700"></p>
+      </div>
+      <button type="button" data-field="upload"
+        class="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 bg-white border border-zinc-300 hover:bg-zinc-50"></button>
+      <button type="button" data-field="remove"
+        class="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50">Remove</button>
     </li>
   </template>
 

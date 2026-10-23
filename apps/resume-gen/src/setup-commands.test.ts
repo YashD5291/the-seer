@@ -106,7 +106,9 @@ describe('helperStatus', () => {
       template: { path: templatePath },
       profileDir,
       outputDir,
-      files: [{ name: 'resume.md', kind: 'text', words: 5, status: 'read', modified: expect.stringMatching(DATE) }],
+      files: [
+        { name: 'resume.md', kind: 'text', words: 5, status: 'read', modified: expect.stringMatching(DATE), slot: null },
+      ],
       profileProblem: null,
     });
   });
@@ -388,8 +390,22 @@ describe('addFile and removeFile', () => {
 
     const file = await addFile(deps(ctx), { name: 'cv.md', bytes: Buffer.from('Alex Rivera, engineer'), lastModifiedMs });
 
-    expect(file).toEqual({ name: 'cv.md', kind: 'text', words: 3, status: 'read', modified: '2024-03-05' });
+    expect(file).toEqual({ name: 'cv.md', kind: 'text', words: 3, status: 'read', modified: '2024-03-05', slot: null });
     expect(existsSync(join(profileDir, 'cv.md'))).toBe(true);
+  });
+
+  it('puts the file in the slot it was given, replacing the file that held it', async () => {
+    const home = newHome();
+    const profileDir = join(home, 'My files');
+    const ctx = context(home, { config: { profileDir } });
+    await addFile(deps(ctx), { name: 'old.md', bytes: Buffer.from('Old story'), slot: 'career-story' });
+
+    const file = await addFile(deps(ctx), { name: 'new.md', bytes: Buffer.from('New story'), slot: 'career-story' });
+
+    expect(file).toMatchObject({ name: 'new.md', slot: 'career-story' });
+    expect(existsSync(join(profileDir, 'old.md'))).toBe(false);
+    const status = await helperStatus(deps(ctx));
+    expect(status.files.map((listed) => [listed.name, listed.slot])).toEqual([['new.md', 'career-story']]);
   });
 
   it('dates the file now when no lastModified comes with it', async () => {

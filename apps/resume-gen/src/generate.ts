@@ -7,6 +7,7 @@ import { CONFIG_FIX, ConfigError } from './config';
 import { type FitResult, fitToPages } from './fit';
 import { readPreamble, renderResumeLatex } from './latex';
 import { parseLegacyMarkdown } from './legacy-markdown';
+import { NOTES_FILE, resumeNotes } from './notes';
 import { isPathInside, nextFreeFolder, safeFolderName, uploadPdfName } from './output';
 import type { Profile } from './profile';
 import { extractResumeDoc, type ResumeDoc, ResumeFormatError, resumePlainText } from './resume-doc';
@@ -238,8 +239,9 @@ function parseReply(text: string, fallbackTitle: string | null): ResumeDoc {
 // ---------------------------------------------------------------------------
 
 // Sends progress for each stage and the score once known, then exactly one skipped, result or
-// error. A score below the threshold ends the job before the writer runs. Never throws for a
-// pipeline failure; only a failing `send` escapes.
+// error. A score below the threshold ends the job before the writer runs. The writer's notes.md
+// is in the job folder before the result is sent. Never throws for a pipeline failure; only a
+// failing `send` escapes.
 export async function writeResume(
   req: WriteRequest,
   deps: WriteDeps,
@@ -266,10 +268,17 @@ export async function writeResume(
     });
     const { doc } = await timed('writing', () => deps.runWriter(request));
     const result = await deps.build(doc, (stage) => send(progress(stage)));
+    await writeNotes(doc, result.folderPath);
     send({ type: 'result', ...result });
   } catch (error) {
     send(toNativeError(error));
   }
+}
+
+// The writer's analysis and changelog go next to the PDF; a reply without them leaves no notes file.
+async function writeNotes(doc: ResumeDoc, folderPath: string): Promise<void> {
+  const notes = resumeNotes(doc);
+  if (notes !== undefined) await writeFile(join(folderPath, NOTES_FILE), notes, 'utf-8');
 }
 
 function progress(stage: WriteStage): HostMessage {

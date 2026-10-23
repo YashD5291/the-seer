@@ -1,5 +1,5 @@
-import type { Stats } from 'node:fs';
-import { mkdir, readdir, readFile, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdirSync, readFileSync, renameSync, type Stats, writeFileSync } from 'node:fs';
+import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { isRecord } from '../json-validation';
 import { failureReason, fileProblem, hasErrnoCode, ProfileError } from '../setup-error';
@@ -10,8 +10,13 @@ export const MAX_PROFILE_CHARS = 300_000;
 // Claude Code gets the documents as a command-line argument, and macOS caps those (with the environment) at 1 MiB.
 export const MAX_PROFILE_BYTES = 600_000;
 
+// The places on the setup page: one career story and up to three base resumes.
+export const SLOTS = ['career-story', 'resume-1', 'resume-2', 'resume-3'] as const;
+export type Slot = (typeof SLOTS)[number];
+
 const TAG = '[theseer-pdf]';
 const CACHE_DIR = '.seer';
+const SLOTS_FILE = 'slots.json';
 const MAX_NAME_CHARS = 120;
 const LARGEST_FILES_SHOWN = 3;
 const NO_READABLE_FILES = "No readable files in My files — open The Seer's setup page and add your resume";
@@ -22,12 +27,15 @@ export interface MyFile {
   words: number;
   status: 'read' | 'no-text' | 'unsupported' | 'too-big';
   modified: string; // YYYY-MM-DD, local time
+  slot: Slot | null; // null for a file added in Finder or outside the places on the setup page
 }
 
+// `kind` tells Claude what the document is: the person's career story, a base resume, or anything else.
 export interface SourceDocument {
   name: string;
   modified: string;
   text: string;
+  kind: 'career story' | 'resume' | 'other';
 }
 
 // text is '' unless the file's status is 'read'.
@@ -40,6 +48,9 @@ interface Candidate {
   name: string;
   stats: Stats;
 }
+
+// Which file holds which slot, by file name.
+type SlotMap = Partial<Record<Slot, string>>;
 
 // Extracted text, reused while the file keeps the same size and modification time.
 interface CacheEntry {
@@ -65,12 +76,14 @@ export async function inspectMyFiles(profileDir: string): Promise<MyFilesReport>
 }
 
 // lastModifiedMs is the dropped file's own date, so `modified` says when the user last changed it, not when it
-// was dropped.
+// was dropped. A `slot` puts the file in that place: whatever file held it is deleted first, so a re-upload under
+// the same name keeps it.
 export async function addMyFile(
   profileDir: string,
   name: string,
   bytes: Uint8Array,
   lastModifiedMs?: number,
+  slot?: Slot,
 ): Promise<MyFile> {
   const safeName = safeFileName(name);
   if (safeName === '') {
@@ -78,10 +91,16 @@ export async function addMyFile(
   }
   assertFileWithinLimit(safeName, bytes.byteLength);
   await attempt('create', profileDir, () => mkdir(profileDir, { recursive: true }));
+  if (slot !== undefined) await deleteSlotFile(profileDir, slot);
   const storedName = await saveWithUniqueName(profileDir, safeName, bytes);
   await keepFileDate(join(profileDir, storedName), lastModifiedMs);
+  if (slot !== undefined) {
+    updateSlotMap(profileDir, (slots) => {
+      slots[slot] = storedName;
+    });
+  }
   const stats = await attempt('read', join(profileDir, storedName), () => stat(join(profileDir, storedName)));
-  return (await loadFile(profileDir, { name: storedName, stats })).file;
+  return (await loadFile(profileDir, { name: storedName, stats }, slot ?? null)).file;
 }
 
 // The one size limit for a file added to My files; `name` is the file's name in the message.
@@ -92,15 +111,29 @@ export function assertFileWithinLimit(name: string, byteLength: number): void {
 }
 
 export async function removeMyFile(profileDir: string, name: string): Promise<MyFile[]> {
-  const candidates = await listCandidates(profileDir);
-  if (!candidates.some((candidate) => candidate.name === name)) {
+  if (!(await deleteListedFile(profileDir, name))) {
     throw new ProfileError(`No file named ${JSON.stringify(name)} in My files`);
   }
-  const cache = cachePath(profileDir, name);
-  await attempt('remove', cache, () => rm(cache, { force: true }));
-  const path = join(profileDir, name);
-  await attempt('remove', path, () => unlink(path));
+  updateSlotMap(profileDir, (slots) => {
+    for (const slot of SLOTS) if (slots[slot] === name) delete slots[slot];
+  });
   return listMyFiles(profileDir);
+}
+
+// Deletes a top-level file of My files and its cache entry; false when no such file is listed. A file that is
+// already gone counts as deleted, so two removals at once do not fail.
+async function deleteListedFile(profileDir: string, name: string): Promise<boolean> {
+  const candidates = await listCandidates(profileDir);
+  if (!candidates.some((candidate) => candidate.name === name)) return false;
+  for (const path of [cachePath(profileDir, name), join(profileDir, name)]) {
+    await attempt('remove', path, () => rm(path, { force: true }));
+  }
+  return true;
+}
+
+async function deleteSlotFile(profileDir: string, slot: Slot): Promise<void> {
+  const name = readSlotMap(profileDir)[slot];
+  if (name !== undefined) await deleteListedFile(profileDir, name);
 }
 
 // Every readable file's text, ready for the prompt. Fails when there is nothing to read or too much of it.
@@ -108,7 +141,17 @@ export async function readDocuments(profileDir: string): Promise<SourceDocument[
   const readable = readableOf(await loadFiles(profileDir));
   const problem = profileProblem(readable);
   if (problem !== null) throw new ProfileError(problem);
-  return readable.map(({ file, text }) => ({ name: file.name, modified: file.modified, text }));
+  return readable.map(({ file, text }) => ({
+    name: file.name,
+    modified: file.modified,
+    text,
+    kind: documentKind(file.slot),
+  }));
+}
+
+function documentKind(slot: Slot | null): SourceDocument['kind'] {
+  if (slot === null) return 'other';
+  return slot === 'career-story' ? 'career story' : 'resume';
 }
 
 function readableOf(files: LoadedFile[]): LoadedFile[] {
@@ -171,9 +214,13 @@ async function keepFileDate(path: string, lastModifiedMs: number | undefined): P
 }
 
 async function loadFiles(profileDir: string): Promise<LoadedFile[]> {
+  // The slot map is read before the folder, so a file added in between is never mistaken for a missing one.
+  const slots = readSlotMap(profileDir);
+  const candidates = await listCandidates(profileDir);
+  const held = slotsHeld(profileDir, slots, candidates);
   const loaded: LoadedFile[] = [];
-  for (const candidate of await listCandidates(profileDir)) {
-    loaded.push(await loadFile(profileDir, candidate));
+  for (const candidate of candidates) {
+    loaded.push(await loadFile(profileDir, candidate, held.get(candidate.name) ?? null));
   }
   return loaded;
 }
@@ -215,15 +262,15 @@ function compareNames(a: string, b: string): number {
   return a > b ? 1 : 0;
 }
 
-async function loadFile(profileDir: string, { name, stats }: Candidate): Promise<LoadedFile> {
+async function loadFile(profileDir: string, { name, stats }: Candidate, slot: Slot | null): Promise<LoadedFile> {
   const modified = localDate(stats.mtime);
   const kind = fileKind(name);
-  if (stats.size > MAX_FILE_BYTES) return unread({ name, kind: kind ?? 'other', status: 'too-big', modified });
-  if (kind === null) return unread({ name, kind: 'other', status: 'unsupported', modified });
+  if (stats.size > MAX_FILE_BYTES) return unread({ name, kind: kind ?? 'other', status: 'too-big', modified, slot });
+  if (kind === null) return unread({ name, kind: 'other', status: 'unsupported', modified, slot });
 
   const text = await extractCached(profileDir, name, kind, stats);
-  if (text.trim() === '') return unread({ name, kind, status: 'no-text', modified });
-  return { file: { name, kind, words: countWords(text), status: 'read', modified }, text };
+  if (text.trim() === '') return unread({ name, kind, status: 'no-text', modified, slot });
+  return { file: { name, kind, words: countWords(text), status: 'read', modified, slot }, text };
 }
 
 function unread(file: Omit<MyFile, 'words'>): LoadedFile {
@@ -296,6 +343,100 @@ async function writeCache(path: string, stats: Stats, text: string): Promise<voi
     await writeFile(path, JSON.stringify(entry));
   } catch (error) {
     console.error(`${TAG} Couldn't cache ${basename(path)}: ${failureReason(error)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The slot map: .seer/slots.json, { "career-story": "<file name>", ... }
+// ---------------------------------------------------------------------------
+
+function slotsPath(profileDir: string): string {
+  return join(profileDir, CACHE_DIR, SLOTS_FILE);
+}
+
+// The map is ours to rewrite, so one that is not valid is treated as empty and logged. A folder that is
+// missing, or a .seer that is a file, has no map either.
+function readSlotMap(profileDir: string): SlotMap {
+  const path = slotsPath(profileDir);
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (hasErrnoCode(error, 'ENOENT') || hasErrnoCode(error, 'ENOTDIR')) return {};
+    throw fileProblem('read', path, error);
+  }
+  const slots = parseSlotMap(raw);
+  if (slots === null) console.error(`${TAG} Ignoring ${path}: it is not a map of slots to file names`);
+  return slots ?? {};
+}
+
+function parseSlotMap(raw: string): SlotMap | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+  return isSlotMap(value) ? value : null;
+}
+
+function isSlotMap(value: unknown): value is SlotMap {
+  return isRecord(value) && Object.entries(value).every(([key, name]) => isSlot(key) && typeof name === 'string');
+}
+
+export function isSlot(value: unknown): value is Slot {
+  return SLOTS.some((slot) => slot === value);
+}
+
+// A change to the map is read, changed and written with no await in between, so two calls in this process
+// cannot interleave. Another helper process would have to land inside the same few microseconds; then the last
+// writer wins and the other file stays as an unslotted file. The write goes to a temp file that is renamed
+// over slots.json, so a reader never sees half a map.
+function updateSlotMap(profileDir: string, change: (slots: SlotMap) => void): void {
+  const path = slotsPath(profileDir);
+  const slots = readSlotMap(profileDir);
+  const before = JSON.stringify(slots);
+  change(slots);
+  if (JSON.stringify(slots) === before) return;
+  const temp = `${path}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(temp, JSON.stringify(slots));
+    renameSync(temp, path);
+  } catch (error) {
+    throw fileProblem('save', path, error);
+  }
+}
+
+// The slot each listed file holds. An entry whose file is gone (deleted in Finder), or a second entry for a
+// file another slot already holds, is dropped from the map so a later file of that name does not inherit it.
+function slotsHeld(profileDir: string, slots: SlotMap, candidates: Candidate[]): Map<string, Slot> {
+  const names = new Set(candidates.map((candidate) => candidate.name));
+  const held = new Map<string, Slot>();
+  const stale: Array<[Slot, string]> = [];
+  for (const slot of SLOTS) {
+    const name = slots[slot];
+    if (name === undefined) continue;
+    if (names.has(name) && !held.has(name)) held.set(name, slot);
+    else stale.push([slot, name]);
+  }
+  if (stale.length > 0) dropSlots(profileDir, stale);
+  return held;
+}
+
+// Listing only reads, so a map that cannot be rewritten is logged, not fatal; the slots are already left out.
+// An entry another call changed since is left as it is.
+function dropSlots(profileDir: string, stale: Array<[Slot, string]>): void {
+  const dropped = stale.map(([slot, name]) => `${slot} (${name})`).join(', ');
+  console.error(`${TAG} Dropping ${dropped}: no such file in My files`);
+  try {
+    updateSlotMap(profileDir, (slots) => {
+      for (const [slot, name] of stale) if (slots[slot] === name) delete slots[slot];
+    });
+  } catch (error) {
+    if (!(error instanceof ProfileError)) throw error;
+    console.error(`${TAG} Couldn't update the slots: ${error.message}`);
   }
 }
 

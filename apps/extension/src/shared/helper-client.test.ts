@@ -4,7 +4,7 @@ import { createHelperClient, HELPER_MISSING, HelperError, NATIVE_HOST } from './
 import type { SendNative } from './helper-client.ts';
 import type { HelperStatus, MyFile } from './helper-types.ts';
 
-const FILE: MyFile = { name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23' };
+const FILE: MyFile = { name: 'resume.pdf', kind: 'pdf', words: 412, status: 'read', modified: '2026-10-23', slot: null };
 
 const STATUS: HelperStatus = {
   version: '1.0.0',
@@ -78,6 +78,30 @@ describe('createHelperClient commands', () => {
       {
         host: 'com.theseer.resumegen',
         message: { command: 'add-file', name: 'resume.pdf', dataBase64: 'JVBERi0=', lastModified },
+      },
+    ]);
+  });
+
+  it('addFile also sends the slot when given, and returns the file in that slot', async () => {
+    const stored: MyFile = { ...FILE, slot: 'resume-2' };
+    const { send, sent } = replying({ success: true, file: stored });
+    assert.deepEqual(await createHelperClient(send).addFile('resume.pdf', 'JVBERi0=', undefined, 'resume-2'), stored);
+    assert.deepEqual(sent, [
+      {
+        host: 'com.theseer.resumegen',
+        message: { command: 'add-file', name: 'resume.pdf', dataBase64: 'JVBERi0=', slot: 'resume-2' },
+      },
+    ]);
+  });
+
+  it('addFile sends the date and the slot together', async () => {
+    const lastModified = new Date(2026, 2, 14, 9, 30).getTime();
+    const { send, sent } = replying({ success: true, file: { ...FILE, slot: 'career-story' } });
+    await createHelperClient(send).addFile('story.md', 'IyBTdG9yeQ==', lastModified, 'career-story');
+    assert.deepEqual(sent, [
+      {
+        host: 'com.theseer.resumegen',
+        message: { command: 'add-file', name: 'story.md', dataBase64: 'IyBTdG9yeQ==', lastModified, slot: 'career-story' },
       },
     ]);
   });
