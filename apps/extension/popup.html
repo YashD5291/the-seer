@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Seer</title>
+  <link rel="stylesheet" href="dist/tailwind.css">
+  <style>
+    body { width: 380px; min-height: 200px; }
+    /* Toggle switch — too custom for pure Tailwind */
+    .toggle-track {
+      position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer;
+    }
+    .toggle-track input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: #3f3f46; border-radius: 10px; transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute; width: 14px; height: 14px;
+      left: 3px; top: 3px; background: #71717a; border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle-track input:checked + .toggle-slider { background: #22c55e; }
+    .toggle-track input:checked + .toggle-slider::before { transform: translateX(16px); background: white; }
+  </style>
+</head>
+<body class="bg-zinc-50 text-zinc-900 antialiased">
+
+  <!-- Header -->
+  <div class="bg-zinc-900 text-zinc-100 px-5 py-3.5 flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg bg-white/[0.08] border border-white/[0.12] flex items-center justify-center text-sm font-bold text-zinc-200">S</div>
+    <div class="flex-1">
+      <h1 class="text-sm font-semibold tracking-wide">The Seer</h1>
+      <p class="text-[11px] text-zinc-500">Resume Fit Checker</p>
+    </div>
+    <label class="toggle-track" title="Enable/disable Seer">
+      <input type="checkbox" id="seer-toggle" checked>
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <!-- Readiness: Checking… / Ready / Needs setup -->
+  <div class="px-5 py-2.5 border-b border-zinc-200 flex items-center gap-2" role="status">
+    <span id="readiness-dot" class="w-2 h-2 rounded-full bg-zinc-300"></span>
+    <span id="readiness-text" class="text-xs font-medium text-zinc-600">Checking…</span>
+  </div>
+
+  <!-- Content -->
+  <div class="px-5 py-4" id="content">
+    <div id="empty-state" class="text-center py-8">
+      <p class="text-sm text-zinc-500 mb-1.5">No job analyzed yet</p>
+      <p class="text-xs text-zinc-400">Click the Seer button on a job posting to analyze fit.</p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="px-5 py-3 border-t border-zinc-200">
+    <button type="button" id="setup-button" class="w-full py-1.5 text-xs font-medium text-zinc-700 bg-white border border-zinc-300 rounded-md cursor-pointer hover:bg-zinc-100 transition-colors">Setup &amp; settings</button>
+  </div>
+
+  <script type="module" src="dist/popup.js"></script>
+</body>
+</html>

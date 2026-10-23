@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "lib": ["ES2023", "ES2024.String"],
+    "types": ["bun"],
+    "skipLibCheck": true
+  },
+  "include": ["main.ts", "src/**/*.ts"]
+}

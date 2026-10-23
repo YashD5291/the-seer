@@ -1,0 +1,154 @@
+\documentclass[10pt, letterpaper]{article}
+
+% ================================
+% PACKAGES
+% ================================
+\usepackage[
+    ignoreheadfoot,
+    top=1.8cm,
+    bottom=1.8cm,
+    left=1.8cm,
+    right=1.8cm,
+    footskip=1.0cm,
+]{geometry}
+
+\usepackage{titlesec}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+\usepackage{fontawesome5}
+\usepackage{amsmath}
+\usepackage[
+    pdfauthor={},
+    colorlinks=true,
+    urlcolor=black
+]{hyperref}
+\usepackage[pscoord]{eso-pic}
+\usepackage{calc}
+\usepackage{bookmark}
+\usepackage{lastpage}
+\usepackage{changepage}
+\usepackage{paracol}
+\usepackage{ifthen}
+\usepackage{needspace}
+\usepackage{iftex}
+
+% ================================
+% FONT CONFIGURATION
+% ================================
+\ifPDFTeX
+    \input{glyphtounicode}
+    \pdfgentounicode=1
+    \usepackage[T1]{fontenc}
+    \usepackage[utf8]{inputenc}
+    \usepackage{lmodern}
+    \usepackage{charter} % Professional font (Type1)
+\else
+    \usepackage{fontspec}
+    \setmainfont{Charter} % Professional font (system TTF for XeTeX/tectonic)
+\fi
+
+% ================================
+% DOCUMENT SETTINGS
+% ================================
+\pagestyle{empty} % No header or footer
+\setcounter{secnumdepth}{0} % No section numbering
+\setlength{\parindent}{0pt} % No paragraph indentation
+\setlength{\topskip}{0pt}
+\setlength{\columnsep}{0.15cm}
+\pagenumbering{gobble}
+\AtBeginEnvironment{adjustwidth}{\partopsep0pt}
+
+% ================================
+% SECTION FORMATTING
+% ================================
+\titleformat{\section}{
+    \needspace{4\baselineskip}
+    \bfseries
+    \large
+}{}{0pt}{}[\vspace{2pt}\titlerule]
+
+\titlespacing{\section}{
+    -1pt    % left space
+}{
+    0.3cm   % top space
+}{
+    0.25cm  % bottom space
+}
+
+% ================================
+% CUSTOM BULLET POINTS
+% ================================
+\renewcommand\labelitemi{$\vcenter{\hbox{\small$\bullet$}}$}
+
+% ================================
+% CUSTOM ENVIRONMENTS
+% ================================
+
+% Environment for bullet points in experience
+\newenvironment{highlights}{
+    \begin{itemize}[
+        topsep=0.10cm,
+        parsep=0.10cm,
+        partopsep=0pt,
+        itemsep=0.05cm,
+        leftmargin=20pt
+    ]
+}{
+    \end{itemize}
+}
+
+% Environment for one column entries
+\newenvironment{onecolentry}{
+    \begin{adjustwidth}{0cm + 0.00001cm}{0cm + 0.00001cm}
+}{
+    \end{adjustwidth}
+}
+
+% Environment for two column entries (used in experience)
+\newenvironment{twocolentry}[2][]{
+    \onecolentry
+    \def\secondColumn{#2}
+    \setcolumnwidth{\fill, 4.5cm}
+    \begin{paracol}{2}
+}{
+    \switchcolumn
+    \raggedleft
+    \secondColumn
+    \end{paracol}
+    \endonecolentry
+}
+
+% Environment for the header
+\newenvironment{header}{
+    \setlength{\topsep}{0pt}
+    \par\kern\topsep
+    \centering
+    \linespread{1.2}
+}{
+    \par\kern\topsep
+}
+
+% ================================
+% CUSTOM COMMANDS
+% ================================
+\newcommand{\experienceSeparator}{\vspace{0.35cm}} % Increased spacing between companies
+
+% Save the original href command
+\let\hrefWithoutArrow\href
+
+% ================================
+% DOCUMENT CONTENT
+% ================================
+\begin{document}
+
+    % Header separator
+    \newcommand{\AND}{\unskip
+        \cleaders\copy\ANDbox\hskip\wd\ANDbox
+        \ignorespaces
+    }
+    \newsavebox\ANDbox
+    \sbox\ANDbox{$|$}
+
+\end{document}

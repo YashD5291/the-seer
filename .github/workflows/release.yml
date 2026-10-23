@@ -1,0 +1,130 @@
+name: Release
+
+# Push a tag like v1.0.0 (the extension manifest's version, with a "v") to publish a release:
+# one tarball per Mac type, install.sh with this repository filled in, and SHA256SUMS.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Read-only by default; only the publish job, which runs no build tools, may write to the repository.
+# Every action is pinned to a full commit SHA (its version in the comment), so a moved tag changes nothing.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Check and build
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+
+      # pnpm's version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the tag matches the extension version
+        run: |
+          manifest_version="$(node -p "require('./apps/extension/manifest.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$manifest_version" != "$tag_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/extension/manifest.json version ${manifest_version}"
+            exit 1
+          fi
+
+      # The helper's compile tests run the real PDF builder.
+      - name: Install the PDF builder for the tests
+        run: brew install tectonic
+
+      - name: Helper checks
+        working-directory: apps/resume-gen
+        run: bun test && bun run typecheck
+
+      - name: Extension checks
+        working-directory: apps/extension
+        run: pnpm test && npx tsc --noEmit && node build.mjs
+
+      - name: Build the release tarballs
+        env:
+          SEER_REPO: ${{ github.repository }}
+        run: |
+          scripts/build-release.sh arm64 dist
+          scripts/build-release.sh x64 dist
+
+      # Intel binaries run on this Apple Silicon runner through Rosetta.
+      - name: Smoke test the tarballs
+        run: |
+          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          expected="${GITHUB_REF_NAME#v}"
+          for arch in arm64 x64; do
+            unpacked="$(mktemp -d)"
+            tar -xzf "dist/the-seer-macos-${arch}.tar.gz" -C "$unpacked"
+            run=()
+            if [ "$arch" = x64 ]; then run=(arch -x86_64); fi
+            version="$("${run[@]}" "$unpacked/the-seer/bin/theseer-pdf" --version)"
+            echo "${arch}: helper ${version}"
+            if [ "$version" != "$expected" ]; then
+              echo "::error::The ${arch} helper reports ${version}, expected ${expected}"
+              exit 1
+            fi
+            "${run[@]}" "$unpacked/the-seer/bin/tectonic" --version
+            test -f "$unpacked/the-seer/templates/default.tex"
+            test -f "$unpacked/the-seer/extension/manifest.json"
+          done
+
+      - name: Prepare install.sh and checksums
+        run: |
+          sed "s#__SEER_REPO__#${GITHUB_REPOSITORY}#g" install.sh > dist/install.sh
+          bash -n dist/install.sh
+          if ! grep -qxF "REPO='${GITHUB_REPOSITORY}'" dist/install.sh; then
+            echo "::error::dist/install.sh does not download from ${GITHUB_REPOSITORY}"
+            exit 1
+          fi
+          cd dist
+          shasum -a 256 the-seer-macos-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Keep the release files for the publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: |
+            dist/the-seer-macos-*.tar.gz
+            dist/install.sh
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: dist
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/*

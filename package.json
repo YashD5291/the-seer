@@ -1,0 +1,14 @@
+{
+  "name": "the-seer",
+  "private": true,
+  "packageManager": "pnpm@10.29.3",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}

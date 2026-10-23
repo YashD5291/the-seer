@@ -1,0 +1,18 @@
+{
+  "name": "@the-seer/resume-gen",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": ">=1.3.10"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "compile": "bun build --compile --target=bun-darwin-arm64 main.ts --outfile ~/.theseer/bin/theseer-pdf",
+    "setup:dev": "bun run compile && mkdir -p ~/.theseer/templates && cp GEN/GEN-V3.tex ~/.theseer/templates/default.tex && ~/.theseer/bin/theseer-pdf --setup"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3"
+  }
+}

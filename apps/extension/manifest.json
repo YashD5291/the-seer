@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "The Seer - AI Resume Tailor",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArVFos8t2b4sZyEOGvu6bjYEwK+Nci2fne+MvKF7tAuVwEO2UeSdL3EPdiqW8vDwhHO0zSEo03458u/6nNimIjaharYiB0QM3JOjjYzQGgd06IELKPhOqcENW8tvzGRWReLGEIBK9tgpCVG2ms12qHtfx3T+jdXfwNSW/FWeB4mbyOFrJSWJtZpiB3BXCpJWkI2UxeF1OZAhBfUhLsWTCG3Mq6LqJFG89rKUf6eNRH2rrbAsRonefDMMU+ZhxgAe2bkHOrQNYx48oETkuu29UNavvgBaYruURz2N7m7sKsPuBgAhTDTXH0UrTi12HULeJcbLSLurfzLOmIzXQ9YlccQIDAQAB",
+  "minimum_chrome_version": "120",
+  "description": "Analyze job postings and generate tailored resume PDFs in one click.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "clipboardWrite",
+    "tabs",
+    "notifications",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.js"],
+      "css": ["content.css"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "setup.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
